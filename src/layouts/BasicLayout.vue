@@ -26,7 +26,7 @@ import GlobalHeader from '../components/GlobalHeader.vue'
 .main-content {
   flex: 1;
   width: 100%;
-  max-width: 1200px;
+  max-width: 99%;
   margin: 0 auto;
   padding: 24px;
 }
