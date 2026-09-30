@@ -1,4 +1,76 @@
 declare namespace API {
+  type AppAddRequest = {
+    /** 应用初始化的 prompt */
+    initPrompt: string
+  }
+
+  type AppAdminUpdateRequest = {
+    /** id */
+    id: string
+    /** 应用名称 */
+    appName?: string
+    /** 应用封面 */
+    cover?: string
+    /** 优先级（值为 99 表示精选应用） */
+    priority?: number
+  }
+
+  type AppDeployRequest = {
+    /** 应用 id */
+    appId: string
+  }
+
+  type AppQueryRequest = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    /** id */
+    id?: string
+    /** 应用名称 */
+    appName?: string
+    /** 应用封面 */
+    cover?: string
+    /** 应用初始化的 prompt */
+    initPrompt?: string
+    /** 代码生成类型（枚举） */
+    codeGenType?: string
+    /** 部署标识 */
+    deployKey?: string
+    /** 优先级 */
+    priority?: number
+    /** 创建用户id */
+    userId?: string
+  }
+
+  type AppUpdateRequest = {
+    /** id */
+    id: string
+    /** 应用名称 */
+    appName: string
+  }
+
+  type AppVO = {
+    id?: string
+    appName?: string
+    cover?: string
+    initPrompt?: string
+    codeGenType?: string
+    deployKey?: string
+    deployedTime?: string
+    priority?: number
+    userId?: string
+    createTime?: string
+    updateTime?: string
+    user?: UserVO
+  }
+
+  type BaseResponseAppVO = {
+    code?: number
+    data?: AppVO
+    message?: string
+  }
+
   type BaseResponseBoolean = {
     code?: number
     data?: boolean
@@ -14,6 +86,12 @@ declare namespace API {
   type BaseResponseLong = {
     code?: number
     data?: number
+    message?: string
+  }
+
+  type BaseResponsePageAppVO = {
+    code?: number
+    data?: PageAppVO
     message?: string
   }
 
@@ -41,8 +119,21 @@ declare namespace API {
     message?: string
   }
 
+  type chatToGenCodeParams = {
+    appId: string
+    prompt: string
+  }
+
   type DeleteRequest = {
     /** id */
+    id: string
+  }
+
+  type getAppVOByIdByAdminParams = {
+    id: string
+  }
+
+  type getAppVOByIdParams = {
     id: string
   }
 
@@ -65,6 +156,15 @@ declare namespace API {
     updateTime?: string
   }
 
+  type PageAppVO = {
+    records?: AppVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
   type PageUserVO = {
     records?: UserVO[]
     pageNumber?: number
@@ -72,6 +172,12 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type ServerSentEventString = Record<string, any>
+
+  type serveStaticResourceParams = {
+    deployKey: string
   }
 
   type User = {
