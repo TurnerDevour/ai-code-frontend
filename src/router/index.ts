@@ -14,6 +14,30 @@ const menuItems: RouteRecordRaw[] = [
     component: () => import('@/pages/HomePage.vue'),
   },
   {
+    path: '/app/chat/:id',
+    name: 'appChat',
+    meta: {
+      title: '应用生成',
+      showNav: false,
+      hideHeader: true,
+      hideFooter: true,
+      requiresAuth: true,
+      role: ACCESS.USER,
+    },
+    component: () => import('@/pages/app/AppChatPage.vue'),
+  },
+  {
+    path: '/app/edit/:id',
+    name: 'appEdit',
+    meta: {
+      title: '应用信息修改',
+      showNav: false,
+      requiresAuth: true,
+      role: ACCESS.USER,
+    },
+    component: () => import('@/pages/app/AppEditPage.vue'),
+  },
+  {
     path: '/user/login',
     name: 'login',
     meta: {
@@ -54,6 +78,28 @@ const menuItems: RouteRecordRaw[] = [
       role: ACCESS.ADMIN,
     },
     component: () => import('@/pages/admin/UserManagePage.vue'),
+  },
+  {
+    path: '/admin/appManage',
+    name: 'appManage',
+    meta: {
+      title: '应用管理',
+      icon: 'AppstoreOutlined',
+      showNav: true,
+      role: ACCESS.ADMIN,
+    },
+    component: () => import('@/pages/admin/AppManagePage.vue'),
+  },
+  {
+    path: '/admin/appEdit/:id',
+    name: 'appEditByAdmin',
+    meta: {
+      title: '应用信息修改',
+      showNav: false,
+      requiresAuth: true,
+      role: ACCESS.ADMIN,
+    },
+    component: () => import('@/pages/app/AppEditPage.vue'),
   },
 ]
 

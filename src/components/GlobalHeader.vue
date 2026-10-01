@@ -59,7 +59,13 @@ import { computed, h, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MenuProps } from 'ant-design-vue'
 import { message } from 'ant-design-vue'
-import { UserOutlined, HomeOutlined, UserAddOutlined, LogoutOutlined } from '@ant-design/icons-vue'
+import {
+  UserOutlined,
+  HomeOutlined,
+  UserAddOutlined,
+  AppstoreOutlined,
+  LogoutOutlined,
+} from '@ant-design/icons-vue'
 import { ACCESS } from '@/constant/access.ts'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
 import { userLogout } from '@/api/userController.ts'
@@ -79,6 +85,7 @@ const handleMenuClick: MenuProps['onClick'] = (info) => {
 const iconMap = {
   HomeOutlined,
   UserAddOutlined,
+  AppstoreOutlined,
 } as const
 type IconName = keyof typeof iconMap
 const isIconName = (value: unknown): value is IconName => {
@@ -271,7 +278,7 @@ updateCurrentMenu(router.currentRoute.value.path)
 
 .header-navigation :deep(.ant-menu-item:hover),
 .header-navigation :deep(.ant-menu-submenu:hover) {
-  color: #1677ff !important;
+  color: #fff !important;
   background: #f1f6ff;
 }
 
