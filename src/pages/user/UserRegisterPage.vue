@@ -134,7 +134,7 @@ const handleSubmit = async (values: API.UserRegisterRequest) => {
   grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
   align-items: center;
   gap: clamp(40px, 8vw, 132px);
-  min-height: calc(100vh - 152px);
+  min-height: 100%;
   max-width: 1040px;
   margin: 0 auto;
   overflow: hidden;

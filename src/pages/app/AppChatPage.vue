@@ -3,6 +3,11 @@
     <!-- 顶部栏：应用名称 + 部署按钮 -->
     <header class="chat-header">
       <div class="header-left">
+        <a-tooltip title="返回首页">
+          <button type="button" class="back-button" @click="goHome">
+            <ArrowLeftOutlined />
+          </button>
+        </a-tooltip>
         <div class="app-avatar">
           <img src="@/assets/logo.png" alt="应用" />
         </div>
@@ -63,7 +68,11 @@
               <UserOutlined v-else />
             </div>
             <div class="message-bubble">
-              <div class="message-content">{{ item.content }}</div>
+              <!-- 用户消息是纯文本，AI 回复走 Markdown 渲染 -->
+              <div v-if="item.role === 'user'" class="message-content is-plain-text">
+                {{ item.content }}
+              </div>
+              <div v-else class="message-content markdown-body" v-html="item.html"></div>
               <div v-if="item.role === 'ai' && item.status === 'loading'" class="typing">
                 <span></span>
                 <span></span>
@@ -88,33 +97,11 @@
                 :disabled="generating || !canChat"
                 :placeholder="
                   canChat
-                    ? '描述越详细，页面越具体，可以一步一步完善生成效果'
+                    ? '请描述你想生成的网站，越详细效果越好哦'
                     : '这是别人的作品，无法在此对话'
                 "
               />
               <div class="input-toolbar">
-                <div class="toolbar-left">
-                  <a-upload
-                    :show-upload-list="false"
-                    :before-upload="beforeUpload"
-                    accept="image/*"
-                    :disabled="generating || !canChat"
-                  >
-                    <button type="button" class="tool-button" :disabled="!canChat">
-                      <PaperClipOutlined />
-                      上传
-                    </button>
-                  </a-upload>
-                  <button
-                    type="button"
-                    class="tool-button"
-                    :disabled="generating || !canChat"
-                    @click="handleOptimize"
-                  >
-                    <BulbOutlined />
-                    优化
-                  </button>
-                </div>
                 <button
                   type="button"
                   class="send-button"
@@ -183,65 +170,14 @@
     </div>
 
     <!-- 应用详情悬浮窗 -->
-    <AppModal
+    <AppDetailModal
       v-model:open="detailModalOpen"
-      title="应用详情"
-      subtitle="查看应用的基础信息"
-      :icon="ProfileOutlined"
-    >
-      <div class="detail-section-title">应用基础信息</div>
-      <div class="detail-app">
-        <div class="detail-app-cover">
-          <img v-if="app.cover" :src="app.cover" :alt="app.appName" />
-          <span v-else>{{ (app.appName || '未')[0] }}</span>
-        </div>
-        <div class="detail-app-meta">
-          <div class="detail-app-name" :title="app.appName">
-            {{ app.appName || '未命名应用' }}
-          </div>
-          <div class="detail-app-type">
-            <a-tag class="type-tag" :bordered="false">{{ app.codeGenType || '-' }}</a-tag>
-            <a-tag v-if="app.priority === GOOD_APP_PRIORITY" class="good-tag" :bordered="false">
-              <StarFilled />
-              精选
-            </a-tag>
-          </div>
-        </div>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">创建者</span>
-        <div class="detail-creator">
-          <a-avatar :size="26" :src="app.user?.userAvatar">
-            <template #icon><UserOutlined /></template>
-          </a-avatar>
-          <span class="creator-name">{{ app.user?.username || '-' }}</span>
-        </div>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">创建时间</span>
-        <span class="detail-value">{{ app.createTime || '-' }}</span>
-      </div>
-
-      <!-- 操作栏：仅本人或管理员可见 -->
-      <template v-if="canChat" #footer>
-        <a-button class="app-modal-button detail-edit-button" @click="handleDetailEdit">
-          <EditOutlined />
-          修改
-        </a-button>
-        <a-popconfirm
-          title="确定要删除该应用吗？删除后不可恢复"
-          ok-text="确定"
-          cancel-text="取消"
-          placement="topRight"
-          @confirm="handleDetailDelete"
-        >
-          <a-button class="app-modal-button detail-delete-button" :loading="deleting">
-            <DeleteOutlined />
-            删除
-          </a-button>
-        </a-popconfirm>
-      </template>
-    </AppModal>
+      :app="app"
+      :can-manage="canChat"
+      :deleting="deleting"
+      @edit="handleDetailEdit"
+      @delete="handleDetailDelete"
+    />
 
     <!-- 应用名称修改悬浮窗 -->
     <AppModal
@@ -268,35 +204,35 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
+  ArrowLeftOutlined,
   ArrowUpOutlined,
-  BulbOutlined,
   CloudUploadOutlined,
-  DeleteOutlined,
   DesktopOutlined,
   DownOutlined,
   EditOutlined,
   ExportOutlined,
   EyeOutlined,
   LoadingOutlined,
-  PaperClipOutlined,
   ProfileOutlined,
   ReloadOutlined,
   SettingOutlined,
-  StarFilled,
   UserOutlined,
 } from '@ant-design/icons-vue'
 import { deleteApp, deployApp, getAppVoById, updateApp } from '@/api/appController'
+import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
 import { getStaticUrl } from '@/utils/apiUrl'
+import { renderMarkdown } from '@/utils/markdown'
 import { streamSse } from '@/utils/sse'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { ACCESS } from '@/constant/access'
-import { GOOD_APP_PRIORITY } from '@/constant/app'
 
 interface ChatMessage {
   id: string
   role: 'user' | 'ai'
   content: string
+  /** AI 回复的 Markdown 渲染结果（流式输出时节流更新） */
+  html: string
   status: 'done' | 'loading' | 'error'
 }
 
@@ -344,7 +280,40 @@ const createMessageIdGenerator = () => {
   return `msg-${Date.now()}-${messageIdSeed}`
 }
 
-// 生成预览地址：http://localhost:8123/api/static/{codeGenType}_{appId}/
+// 流式输出的分片很密，而 Markdown 解析 + 代码高亮都有成本：
+// 这里按 100ms 节流重渲染，流结束时再立即渲染一次，兼顾实时展示与流畅度
+const MARKDOWN_RENDER_INTERVAL = 100
+const renderTimers = new Map<string, number>()
+
+// 立即渲染（流结束、报错时调用）
+const flushMarkdown = (message: ChatMessage) => {
+  const timer = renderTimers.get(message.id)
+  if (timer !== undefined) {
+    window.clearTimeout(timer)
+    renderTimers.delete(message.id)
+  }
+  message.html = renderMarkdown(message.content)
+}
+
+// 节流渲染（流式追加内容时调用）
+const scheduleMarkdown = (message: ChatMessage) => {
+  if (renderTimers.has(message.id)) {
+    return
+  }
+  const timer = window.setTimeout(() => {
+    renderTimers.delete(message.id)
+    message.html = renderMarkdown(message.content)
+  }, MARKDOWN_RENDER_INTERVAL)
+  renderTimers.set(message.id, timer)
+}
+
+// 切换应用、离开页面时清掉还没触发的定时器
+const clearMarkdownTimers = () => {
+  renderTimers.forEach((timer) => window.clearTimeout(timer))
+  renderTimers.clear()
+}
+
+// 生成预览地址：{VITE_APP_PREVIEW_BASE_URL}/{codeGenType}_{appId}/（见 utils/apiUrl.ts）
 // codeGenType 取自应用详情（app.codeGenType，如 multi_file / html）
 const buildPreviewUrl = (target?: API.AppVO) => {
   const codeGenType = target?.codeGenType ?? app.value.codeGenType
@@ -381,6 +350,7 @@ const genCode = async (prompt: string) => {
     id: aiMessageId,
     role: 'ai',
     content: '',
+    html: '',
     status: 'loading',
   })
   // 通过下标定位消息，保证流式追加时响应式更新
@@ -414,6 +384,8 @@ const genCode = async (prompt: string) => {
     onMessage: (event) => {
       // 后端流结束时会发送 event:done，此时代码文件已全部保存
       if (event.event === 'done') {
+        // 结束时立即渲染一次，保证最终排版与代码高亮是完整的
+        updateAiMessage((target) => flushMarkdown(target))
         showGeneratedWebsite()
         return
       }
@@ -430,12 +402,14 @@ const genCode = async (prompt: string) => {
       }
       updateAiMessage((target) => {
         target.content += chunk
+        scheduleMarkdown(target)
       })
       scrollToBottom()
     },
     onError: (error) => {
       updateAiMessage((target) => {
         target.status = 'error'
+        flushMarkdown(target)
       })
       message.error('生成失败：' + (error as Error)?.message).then(() => {})
     },
@@ -444,6 +418,7 @@ const genCode = async (prompt: string) => {
         if (target.status !== 'error') {
           target.status = 'done'
         }
+        flushMarkdown(target)
       })
       generating.value = false
       abortController = null
@@ -467,41 +442,12 @@ const handleSend = async () => {
     id: createMessageIdGenerator(),
     role: 'user',
     content: prompt,
+    html: '',
     status: 'done',
   })
   userInput.value = ''
   await scrollToBottom()
   await genCode(prompt)
-}
-
-// 输入框优化：补充细节描述
-const handleOptimize = () => {
-  const current = userInput.value.trim()
-  if (!current) {
-    message.warning('请先输入应用描述').then(() => {})
-    return
-  }
-  userInput.value = `${current}\n\n要求：页面结构清晰、视觉精美、支持响应式布局，交互流畅，可直接运行。`
-  message.success('已为你补充细节描述').then(() => {})
-}
-
-// 上传图片作为参考
-const beforeUpload = (file: File) => {
-  if (!canChat.value) {
-    message.warning('无法在别人的作品下对话哦~').then(() => {})
-    return false
-  }
-  if (!file.type.startsWith('image/')) {
-    message.error('只能上传图片文件').then(() => {})
-    return false
-  }
-  const reader = new FileReader()
-  reader.onload = () => {
-    const result = String(reader.result ?? '')
-    userInput.value = `${userInput.value}${userInput.value ? '\n' : ''}请参考图片：${result}`
-  }
-  reader.readAsDataURL(file)
-  return false
 }
 
 // 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
@@ -573,6 +519,11 @@ const goToEditPage = () => {
   router.push(`/app/edit/${appId.value}`)
 }
 
+// 返回首页
+const goHome = () => {
+  router.push('/')
+}
+
 // 应用详情悬浮窗
 const openDetailModal = () => {
   detailModalOpen.value = true
@@ -632,6 +583,7 @@ watch(
     if (!value || String(value) === String(oldValue)) {
       return
     }
+    clearMarkdownTimers()
     messages.value = []
     userInput.value = ''
     previewUrl.value = ''
@@ -641,6 +593,7 @@ watch(
 
 onBeforeUnmount(() => {
   abortController?.abort()
+  clearMarkdownTimers()
 })
 </script>
 
@@ -656,8 +609,8 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 64px;
-  padding: 0 20px;
+  height: 56px;
+  padding: 0 16px;
   background: #fff;
   border-bottom: 1px solid #edf2fa;
   box-shadow: 0 4px 16px rgb(31 73 125 / 5%);
@@ -668,6 +621,33 @@ onBeforeUnmount(() => {
   gap: 10px;
   align-items: center;
   min-width: 0;
+}
+
+.back-button {
+  display: grid;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  color: #5c6d86;
+  font-size: 16px;
+  border: 1px solid #e6eefb;
+  border-radius: 10px;
+  place-items: center;
+  cursor: pointer;
+  background: #f7f9fc;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.back-button:hover,
+.back-button:focus {
+  color: #1677ff;
+  border-color: #bfdbfe;
+  background: #eef5ff;
+  box-shadow: 0 6px 14px rgb(22 119 255 / 14%);
 }
 
 .app-avatar {
@@ -754,188 +734,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 6px 14px rgb(22 119 255 / 14%);
 }
 
-/* 应用详情窗内容（弹窗外壳与按钮样式见 @/components/AppModal.vue，
-   内容同样被 teleport 到 body，故使用 :global） */
-:global(.app-modal .detail-section-title) {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 14px;
-  color: #5375a4;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 1.4px;
-}
-
-:global(.app-modal .detail-section-title::before) {
-  display: block;
-  width: 3px;
-  height: 12px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #1677ff, #6d5dfc);
-  content: '';
-}
-
-:global(.app-modal .detail-app) {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  margin-bottom: 18px;
-  border: 1px solid #eef3fa;
-  border-radius: 14px;
-  background: #f8fbff;
-}
-
-:global(.app-modal .detail-app-cover) {
-  display: grid;
-  flex: 0 0 54px;
-  width: 54px;
-  height: 54px;
-  overflow: hidden;
-  color: #fff;
-  font-weight: 700;
-  font-size: 22px;
-  place-items: center;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 8px 18px rgb(54 103 210 / 22%);
-}
-
-:global(.app-modal .detail-app-cover img) {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: top center;
-}
-
-:global(.app-modal .detail-app-meta) {
-  min-width: 0;
-}
-
-:global(.app-modal .detail-app-name) {
-  margin-bottom: 6px;
-  overflow: hidden;
-  color: #172b4d;
-  font-weight: 700;
-  font-size: 15px;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:global(.app-modal .detail-app-type) {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-:global(.app-modal .type-tag) {
-  padding: 1px 9px;
-  color: #1677ff;
-  font-weight: 600;
-  font-size: 12px;
-  border: 0;
-  border-radius: 999px;
-  background: #eaf3ff;
-}
-
-:global(.app-modal .good-tag) {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  padding: 1px 9px;
-  color: #b45309;
-  font-weight: 600;
-  font-size: 12px;
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(105deg, #fff2df, #ffe6c7);
-}
-
-:global(.app-modal .detail-row) {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 11px 2px;
-  border-bottom: 1px dashed #eef3fa;
-}
-
-:global(.app-modal .detail-row:last-child) {
-  border-bottom: 0;
-}
-
-:global(.app-modal .detail-label) {
-  flex: 0 0 auto;
-  color: #8190a5;
-  font-size: 13px;
-}
-
-:global(.app-modal .detail-value) {
-  color: #3c5677;
-  font-weight: 500;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-:global(.app-modal .detail-creator) {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  padding: 3px 12px 3px 4px;
-  border: 1px solid #eef3fa;
-  border-radius: 999px;
-  background: #f8fbff;
-}
-
-:global(.app-modal .detail-creator .ant-avatar) {
-  border: 1px solid #e6eefb;
-}
-
-:global(.app-modal .creator-name) {
-  max-width: 160px;
-  overflow: hidden;
-  color: #3c5677;
-  font-weight: 600;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:global(.app-modal .detail-edit-button),
-:global(.app-modal .detail-delete-button) {
-  flex: 1;
-}
-
-:global(.app-modal .detail-edit-button) {
-  color: #1677ff;
-  border-color: #d8e8ff;
-  background: #f5faff;
-}
-
-:global(.app-modal .detail-edit-button:hover),
-:global(.app-modal .detail-edit-button:focus) {
-  color: #fff !important;
-  border-color: #1677ff !important;
-  background: #1677ff !important;
-  box-shadow: 0 8px 16px rgb(22 119 255 / 26%);
-}
-
-:global(.app-modal .detail-delete-button) {
-  color: #e85d75;
-  border-color: #ffd8df;
-  background: #fff7f8;
-}
-
-:global(.app-modal .detail-delete-button:hover),
-:global(.app-modal .detail-delete-button:focus) {
-  color: #fff !important;
-  border-color: #f0667c !important;
-  background: #f0667c !important;
-  box-shadow: 0 8px 16px rgb(240 102 124 / 26%);
-}
-
 .deploy-button {
   display: inline-flex;
   align-items: center;
@@ -958,37 +756,82 @@ onBeforeUnmount(() => {
 .chat-body {
   display: flex;
   flex: 1;
-  gap: 16px;
+  gap: 10px;
   min-height: 0;
-  padding: 16px;
+  padding: 10px 12px 12px;
 }
 
 .chat-panel {
   display: flex;
-  flex: 0 0 42%;
+  flex: 2;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
   background: #fff;
   border: 1px solid #edf2fa;
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: 0 12px 36px rgb(31 73 125 / 7%);
 }
 
 .message-list {
   flex: 1;
-  padding: 20px 18px 8px;
+  padding: 16px 14px 6px;
   overflow-y: auto;
+  /* 常驻预留滚动条宽度，内容增减时不会左右抖动 */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+/* 滚动条：轨道透明、滑块是内缩的圆角胶囊，鼠标移入时渐变为品牌蓝 */
+.message-list::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.message-list::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.message-list::-webkit-scrollbar-thumb {
+  /* 透明边框 + padding-box 裁剪，让滑块比轨道更细、更精致 */
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbe6f5, #cadcf0);
+  background-clip: padding-box;
+}
+
+.message-list:hover::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #c7dbf5, #aec9ea);
+  background-clip: padding-box;
+}
+
+.message-list::-webkit-scrollbar-thumb:hover,
+.message-list::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(135deg, #93c2fb, #6ba4ef);
+  background-clip: padding-box;
+}
+
+.message-list::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 不支持 ::-webkit-scrollbar 的浏览器（如 Firefox）用标准属性兜底 */
+@supports not selector(::-webkit-scrollbar) {
+  .message-list {
+    scrollbar-width: thin;
+    scrollbar-color: #cadcf0 transparent;
+  }
 }
 
 .message-empty {
-  margin-top: 80px;
+  margin-top: 56px;
 }
 
 .message-row {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .message-row.is-user {
@@ -1015,7 +858,7 @@ onBeforeUnmount(() => {
 }
 
 .message-bubble {
-  max-width: 82%;
+  max-width: 90%;
   padding: 12px 15px;
   color: #33475f;
   font-size: 14px;
@@ -1032,7 +875,165 @@ onBeforeUnmount(() => {
 
 .message-content {
   word-break: break-word;
+}
+
+/* 用户消息是纯文本，保留原有换行与空格 */
+.message-content.is-plain-text {
   white-space: pre-wrap;
+}
+
+/* ---- AI 回复的 Markdown 样式 ----
+   v-html 注入的节点不带 scoped 标记，因此统一用 :deep 命中 */
+.message-content.markdown-body {
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.message-content.markdown-body :deep(p) {
+  margin: 0 0 10px;
+}
+
+.message-content.markdown-body :deep(h1),
+.message-content.markdown-body :deep(h2),
+.message-content.markdown-body :deep(h3),
+.message-content.markdown-body :deep(h4),
+.message-content.markdown-body :deep(h5),
+.message-content.markdown-body :deep(h6) {
+  margin: 16px 0 10px;
+  color: #172b4d;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.message-content.markdown-body :deep(h1) {
+  font-size: 19px;
+}
+
+.message-content.markdown-body :deep(h2) {
+  font-size: 17px;
+}
+
+.message-content.markdown-body :deep(h3) {
+  font-size: 15px;
+}
+
+.message-content.markdown-body :deep(h4),
+.message-content.markdown-body :deep(h5),
+.message-content.markdown-body :deep(h6) {
+  font-size: 14px;
+}
+
+.message-content.markdown-body :deep(ul),
+.message-content.markdown-body :deep(ol) {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.message-content.markdown-body :deep(li) {
+  margin: 4px 0;
+}
+
+.message-content.markdown-body :deep(li::marker) {
+  color: #7c9cc9;
+}
+
+.message-content.markdown-body :deep(blockquote) {
+  margin: 10px 0;
+  padding: 6px 12px;
+  color: #5c6d86;
+  border-left: 3px solid #cfe0f8;
+  border-radius: 0 8px 8px 0;
+  background: #f5f8fd;
+}
+
+.message-content.markdown-body :deep(a) {
+  color: #1677ff;
+  text-decoration: none;
+}
+
+.message-content.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.message-content.markdown-body :deep(hr) {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px dashed #dbe6f5;
+}
+
+.message-content.markdown-body :deep(img) {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* 行内代码 */
+.message-content.markdown-body :deep(code) {
+  padding: 2px 6px;
+  color: #d6396b;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, Menlo, monospace;
+  font-size: 12.5px;
+  border: 1px solid #e6eefb;
+  border-radius: 6px;
+  background: #f5f8fd;
+}
+
+/* 代码块：高亮着色交给 highlight.js 的主题，这里只控制容器 */
+.message-content.markdown-body :deep(pre) {
+  margin: 10px 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid #e6eefb;
+  border-radius: 10px;
+  background: #f8fafd;
+}
+
+.message-content.markdown-body :deep(pre code) {
+  padding: 0;
+  color: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  border: 0;
+  background: transparent;
+}
+
+.message-content.markdown-body :deep(table) {
+  width: 100%;
+  margin: 10px 0;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.message-content.markdown-body :deep(th),
+.message-content.markdown-body :deep(td) {
+  padding: 7px 10px;
+  border: 1px solid #e6eefb;
+}
+
+.message-content.markdown-body :deep(th) {
+  color: #48658b;
+  font-weight: 600;
+  background: #f5f8fd;
+}
+
+/* 首尾元素去掉多余外边距，让气泡内边距保持一致 */
+.message-content.markdown-body :deep(p:first-child),
+.message-content.markdown-body :deep(pre:first-child),
+.message-content.markdown-body :deep(ul:first-child),
+.message-content.markdown-body :deep(ol:first-child),
+.message-content.markdown-body :deep(blockquote:first-child),
+.message-content.markdown-body :deep(h1:first-child),
+.message-content.markdown-body :deep(h2:first-child),
+.message-content.markdown-body :deep(h3:first-child) {
+  margin-top: 0;
+}
+
+.message-content.markdown-body :deep(p:last-child),
+.message-content.markdown-body :deep(pre:last-child),
+.message-content.markdown-body :deep(ul:last-child),
+.message-content.markdown-body :deep(ol:last-child),
+.message-content.markdown-body :deep(blockquote:last-child),
+.message-content.markdown-body :deep(table:last-child) {
+  margin-bottom: 0;
 }
 
 .typing {
@@ -1079,11 +1080,11 @@ onBeforeUnmount(() => {
 }
 
 .input-wrapper {
-  padding: 12px 16px 16px;
+  padding: 8px 12px 12px;
 }
 
 .input-card {
-  padding: 14px 16px 12px;
+  padding: 12px 14px 10px;
   background: #f7f9fc;
   border: 1px solid #eaf0f9;
   border-radius: 16px;
@@ -1116,7 +1117,6 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.input-card.is-readonly .tool-button:disabled,
 .input-card.is-readonly .send-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -1146,37 +1146,9 @@ onBeforeUnmount(() => {
 
 .input-toolbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  margin-top: 10px;
-}
-
-.toolbar-left {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.tool-button {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  color: #5c6d86;
-  font-size: 13px;
-  background: #fff;
-  border: 1px solid #eaf0f9;
-  border-radius: 9px;
-  cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease;
-}
-
-.tool-button:hover {
-  color: #1677ff;
-  background: #eef5ff;
+  margin-top: 8px;
 }
 
 .send-button {
@@ -1201,13 +1173,13 @@ onBeforeUnmount(() => {
 
 .preview-panel {
   display: flex;
-  flex: 1;
+  flex: 3;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
   background: #fff;
   border: 1px solid #edf2fa;
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: 0 12px 36px rgb(31 73 125 / 7%);
 }
 
@@ -1215,8 +1187,8 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 48px;
-  padding: 0 16px;
+  height: 44px;
+  padding: 0 14px;
   border-bottom: 1px solid #eef3fa;
 }
 
@@ -1268,7 +1240,7 @@ onBeforeUnmount(() => {
   position: relative;
   flex: 1;
   min-height: 0;
-  padding: 12px;
+  padding: 8px;
   background: #f5f8fd;
 }
 
@@ -1277,7 +1249,7 @@ onBeforeUnmount(() => {
   height: 100%;
   background: #fff;
   border: 1px solid #e6eefb;
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .preview-placeholder {
@@ -1344,11 +1316,58 @@ onBeforeUnmount(() => {
   }
 
   .app-name-button {
-    max-width: 180px;
+    max-width: 140px;
   }
 
   .chat-body {
     padding: 10px;
+  }
+}
+
+/* —— Markdown 代码块（超长代码行的横向滚动）—— */
+.message-content.markdown-body :deep(pre::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+.message-content.markdown-body :deep(pre::-webkit-scrollbar-track) {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.message-content.markdown-body :deep(pre::-webkit-scrollbar-thumb) {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbe6f5, #cadcf0);
+  background-clip: padding-box;
+}
+
+.message-content.markdown-body :deep(pre:hover::-webkit-scrollbar-thumb) {
+  background: linear-gradient(135deg, #c7dbf5, #aec9ea);
+  background-clip: padding-box;
+}
+
+.message-content.markdown-body :deep(pre::-webkit-scrollbar-thumb:hover),
+.message-content.markdown-body :deep(pre::-webkit-scrollbar-thumb:active) {
+  background: linear-gradient(135deg, #93c2fb, #6ba4ef);
+  background-clip: padding-box;
+}
+
+.message-content.markdown-body :deep(pre::-webkit-scrollbar-corner) {
+  background: transparent;
+}
+
+/* 表格内超长内容优先换行，避免把对话区撑出横向滚动条 */
+.message-content.markdown-body :deep(th),
+.message-content.markdown-body :deep(td) {
+  word-break: break-word;
+}
+
+/* 不支持 ::-webkit-scrollbar 的浏览器（如 Firefox）兜底 */
+@supports not selector(::-webkit-scrollbar) {
+  .message-content.markdown-body :deep(pre) {
+    scrollbar-width: thin;
+    scrollbar-color: #cadcf0 transparent;
   }
 }
 </style>

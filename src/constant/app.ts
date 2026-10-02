@@ -5,6 +5,12 @@ export const GOOD_APP_PRIORITY = 99
 /** 默认应用的优先级 */
 export const DEFAULT_APP_PRIORITY = 0
 
+/** 应用优先级可选项（对应后端 AppConstant 的两个优先级常量） */
+export const APP_PRIORITY_OPTIONS = [
+  { label: '默认应用', value: DEFAULT_APP_PRIORITY },
+  { label: '精选应用', value: GOOD_APP_PRIORITY },
+]
+
 /** 主页列表每页数量 */
 export const HOME_PAGE_SIZE = 6
 

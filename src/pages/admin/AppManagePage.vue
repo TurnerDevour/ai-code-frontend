@@ -1,15 +1,11 @@
 <template>
   <div class="app-manage-page">
-    <div class="page-header">
-      <div>
-        <span class="eyebrow">APPLICATION MANAGEMENT</span>
-        <h1>应用管理</h1>
-        <p>查看并管理平台中的所有应用，支持搜索、精选、优先级查看与删除。</p>
-      </div>
-      <div class="header-icon">
-        <AppstoreOutlined />
-      </div>
-    </div>
+    <PageHeader
+      eyebrow="APPLICATION MANAGEMENT"
+      title="应用管理"
+      description="查看并管理平台中的所有应用，支持搜索、精选、优先级查看与删除。"
+      :icon="AppstoreOutlined"
+    />
 
     <section class="search-panel">
       <div class="panel-label">
@@ -30,16 +26,14 @@
           </a-input>
         </a-form-item>
         <a-form-item label="代码生成类型">
-          <a-input
+          <a-select
             v-model:value="searchParams.codeGenType"
-            placeholder="输入生成类型"
+            class="code-gen-type-select"
+            placeholder="全部"
             allow-clear
-            @change="handleSearchChange"
-          >
-            <template #prefix>
-              <CodeOutlined />
-            </template>
-          </a-input>
+            :options="CODE_GEN_TYPE_OPTIONS"
+            @change="doSearch"
+          />
         </a-form-item>
         <a-form-item label="优先级">
           <a-select
@@ -86,35 +80,10 @@
             </span>
           </template>
           <template v-else-if="column.dataIndex === 'codeGenType'">
-            <a-tag class="type-tag">{{ record.codeGenType || '-' }}</a-tag>
+            <CodeGenTypeTag :code-gen-type="record.codeGenType" />
           </template>
           <template v-else-if="column.dataIndex === 'priority'">
-            <div class="priority-cell">
-              <a-tooltip :title="`优先级：${record.priority ?? DEFAULT_APP_PRIORITY}`">
-                <a-tag
-                  v-if="record.priority === GOOD_APP_PRIORITY"
-                  class="priority-tag good-tag"
-                  :bordered="false"
-                >
-                  <StarFilled />
-                  精选
-                </a-tag>
-                <a-tag
-                  v-else-if="
-                    record.priority === DEFAULT_APP_PRIORITY || record.priority === undefined
-                  "
-                  class="priority-tag default-tag"
-                  :bordered="false"
-                >
-                  <HomeOutlined />
-                  默认应用
-                </a-tag>
-                <a-tag v-else class="priority-tag custom-tag" :bordered="false">
-                  <ThunderboltOutlined />
-                  {{ record.priority }}
-                </a-tag>
-              </a-tooltip>
-            </div>
+            <AppPriorityTag :priority="record.priority" />
           </template>
           <template v-else-if="column.dataIndex === 'user'">
             <div class="user-cell">
@@ -176,19 +145,20 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined,
-  CodeOutlined,
   DeleteOutlined,
   EditOutlined,
-  HomeOutlined,
   PictureOutlined,
   SearchOutlined,
   StarFilled,
   StarOutlined,
-  ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
 import { deleteAppByAdmin, listAppVoByPageByAdmin, updateAppByAdmin } from '@/api/appController'
-import { GOOD_APP_PRIORITY, DEFAULT_APP_PRIORITY, MANAGE_PAGE_SIZE } from '@/constant/app'
+import AppPriorityTag from '@/components/AppPriorityTag.vue'
+import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import { APP_PRIORITY_OPTIONS, GOOD_APP_PRIORITY, MANAGE_PAGE_SIZE } from '@/constant/app'
+import { CODE_GEN_TYPE_OPTIONS } from '@/constant/codeGenType'
 
 const router = useRouter()
 
@@ -247,13 +217,9 @@ const searchParams = reactive<API.AppQueryRequest>({
   pageSize: MANAGE_PAGE_SIZE,
 })
 
-// 优先级筛选项，null 表示全部
+// 优先级筛选项，null 表示全部（可选项复用应用常量，与编辑页保持一致）
 const priorityFilter = ref<number | null>(null)
-const priorityOptions = [
-  { label: '全部', value: null },
-  { label: '精选应用', value: GOOD_APP_PRIORITY },
-  { label: '默认应用', value: DEFAULT_APP_PRIORITY },
-]
+const priorityOptions = [{ label: '全部', value: null }, ...APP_PRIORITY_OPTIONS]
 
 // 分页参数
 const pagination = computed(() => ({
@@ -360,49 +326,9 @@ onMounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 160px);
+  min-height: 100%;
   max-width: 1382px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: 8px 0 28px;
-}
-
-.eyebrow {
-  display: block;
-  color: #5375a4;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 1.6px;
-}
-
-.page-header h1 {
-  margin: 8px 0 7px;
-  color: #172b4d;
-  font-size: 28px;
-  line-height: 1.3;
-}
-
-.page-header p {
-  margin: 0;
-  color: #8190a5;
-  font-size: 14px;
-}
-
-.header-icon {
-  display: grid;
-  width: 52px;
-  height: 52px;
-  color: #fff;
-  font-size: 23px;
-  place-items: center;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 12px 28px rgb(54 103 210 / 25%);
 }
 
 .search-panel,
@@ -473,7 +399,12 @@ onMounted(() => {
   width: 160px;
 }
 
-.priority-select :deep(.ant-select-selector) {
+.code-gen-type-select {
+  width: 200px;
+}
+
+.priority-select :deep(.ant-select-selector),
+.code-gen-type-select :deep(.ant-select-selector) {
   height: 38px !important;
   background: #f7f9fc !important;
   border-color: transparent !important;
@@ -616,101 +547,6 @@ onMounted(() => {
   background: #fafcff;
 }
 
-.type-tag {
-  margin: 0;
-  padding: 2px 10px;
-  color: #1677ff;
-  font-weight: 600;
-  font-size: 12px;
-  border: 0;
-  border-radius: 999px;
-  background: #eaf3ff;
-  box-shadow: inset 0 0 0 1px #d8e8ff;
-}
-
-.priority-cell {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  min-width: 96px;
-}
-
-.priority-tag {
-  position: relative;
-  display: inline-flex;
-  gap: 5px;
-  justify-content: center;
-  align-items: center;
-  min-width: 82px;
-  margin: 0;
-  overflow: hidden;
-  padding: 3px 10px;
-  font-weight: 600;
-  font-size: 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    filter 0.2s ease;
-}
-
-/* 标签为纯状态展示。antd 的点击波纹会把一个零尺寸 holder 作为标签第一个子元素插入，
-   而 .priority-tag 是 inline-flex，该 holder 会被当作 flex item 参与居中布局，
-   导致波纹圆心落在胶囊右下角。这里直接把 holder 钉在胶囊自身坐标系的原点并铺满整块，
-   波纹即可回到标签内、由 overflow 裁切在胶囊圆角内 */
-.priority-tag :deep(.ant-wave) {
-  position: absolute !important;
-  inset: 0 !important;
-  margin: 0 !important;
-  border-radius: inherit !important;
-}
-
-.priority-tag:active {
-  transform: translateY(0) scale(0.97);
-}
-
-.priority-tag:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.03);
-}
-
-.good-tag {
-  color: #b45309;
-  background: linear-gradient(105deg, #fff2df, #ffe6c7);
-  box-shadow: inset 0 0 0 1px #ffd9a8;
-}
-
-.good-tag:hover {
-  box-shadow:
-    inset 0 0 0 1px #ffc880,
-    0 6px 14px rgb(245 158 11 / 22%);
-}
-
-.default-tag {
-  color: #47607f;
-  background: linear-gradient(105deg, #f2f6fc, #e9f0fa);
-  box-shadow: inset 0 0 0 1px #dde8f6;
-}
-
-.default-tag:hover {
-  box-shadow:
-    inset 0 0 0 1px #c8dbf2,
-    0 6px 14px rgb(80 120 180 / 18%);
-}
-
-.custom-tag {
-  color: #0f766e;
-  background: linear-gradient(105deg, #e6faf5, #d9f5ee);
-  box-shadow: inset 0 0 0 1px #c3ece1;
-}
-
-.custom-tag:hover {
-  box-shadow:
-    inset 0 0 0 1px #a8e2d3,
-    0 6px 14px rgb(15 118 110 / 18%);
-}
-
 .user-cell {
   display: inline-flex;
   gap: 8px;
@@ -838,7 +674,8 @@ onMounted(() => {
   }
 
   .search-form :deep(.ant-input-affix-wrapper),
-  .priority-select {
+  .priority-select,
+  .code-gen-type-select {
     width: 100%;
   }
 
@@ -853,19 +690,6 @@ onMounted(() => {
 
   .table-heading {
     padding: 18px;
-  }
-}
-
-@media (max-width: 480px) {
-  .header-icon {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
-    border-radius: 13px;
-  }
-
-  .page-header h1 {
-    font-size: 24px;
   }
 }
 </style>

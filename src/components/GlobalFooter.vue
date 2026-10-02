@@ -22,15 +22,12 @@
 
 <style scoped>
 .footer {
+  flex: 0 0 auto;
   padding: 16px 24px;
   background: rgb(248 251 255 / 92%);
   border-top: 1px solid rgb(219 234 254 / 85%);
   box-shadow: 0 -8px 28px rgb(43 85 145 / 5%);
   text-align: center;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
   backdrop-filter: blur(12px);
 }
 

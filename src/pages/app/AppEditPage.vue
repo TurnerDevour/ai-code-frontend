@@ -1,21 +1,13 @@
 <template>
   <div class="app-edit-page">
-    <div class="page-header">
-      <div>
-        <span class="eyebrow">APPLICATION SETTINGS</span>
-        <h1>应用信息修改</h1>
-        <p>
-          {{
-            isAdmin
-              ? '管理员可修改应用名称、应用封面与优先级。'
-              : '普通用户仅支持修改自己的应用名称。'
-          }}
-        </p>
-      </div>
-      <div class="header-icon">
-        <SettingOutlined />
-      </div>
-    </div>
+    <PageHeader
+      eyebrow="APPLICATION SETTINGS"
+      title="应用信息修改"
+      :description="
+        isAdmin ? '管理员可修改应用名称、应用封面与优先级。' : '普通用户仅支持修改自己的应用名称。'
+      "
+      :icon="SettingOutlined"
+    />
 
     <a-spin :spinning="loading">
       <section class="form-panel">
@@ -54,14 +46,15 @@
               </div>
             </a-form-item>
             <a-form-item label="优先级" name="priority">
-              <a-input-number
+              <a-select
                 v-model:value="formState.priority"
-                class="priority-input"
-                :min="0"
-                :max="99"
-                placeholder="值为 99 表示精选应用"
+                class="priority-select"
+                :options="priorityOptions"
+                placeholder="请选择优先级"
               />
-              <span class="field-tip">优先级为 99 时，该应用将展示在首页「精选案例」中</span>
+              <span class="field-tip">
+                优先级为 {{ GOOD_APP_PRIORITY }} 时，该应用将展示在首页「精选案例」中
+              </span>
             </a-form-item>
           </template>
 
@@ -90,7 +83,9 @@ import { message } from 'ant-design-vue'
 import { PictureOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { getAppVoById, getAppVoByIdByAdmin, updateApp, updateAppByAdmin } from '@/api/appController'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
+import PageHeader from '@/components/PageHeader.vue'
 import { ACCESS } from '@/constant/access'
+import { APP_PRIORITY_OPTIONS, GOOD_APP_PRIORITY } from '@/constant/app'
 
 const route = useRoute()
 const router = useRouter()
@@ -111,6 +106,16 @@ const formState = reactive<{
   appName: '',
   cover: '',
   priority: 0,
+})
+
+// 优先级选项：以常量中的两个优先级为准；存量应用若使用了自定义优先级，则额外附上以免显示成裸数字
+const priorityOptions = computed(() => {
+  const options = [...APP_PRIORITY_OPTIONS]
+  const current = formState.priority
+  if (current !== undefined && !options.some((option) => option.value === current)) {
+    options.push({ label: `自定义（${current}）`, value: current })
+  }
+  return options
 })
 
 // 获取应用信息，管理员使用管理员接口
@@ -189,46 +194,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: 8px 0 28px;
-}
-
-.eyebrow {
-  display: block;
-  color: #5375a4;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 1.6px;
-}
-
-.page-header h1 {
-  margin: 8px 0 7px;
-  color: #172b4d;
-  font-size: 28px;
-  line-height: 1.3;
-}
-
-.page-header p {
-  margin: 0;
-  color: #8190a5;
-  font-size: 14px;
-}
-
-.header-icon {
-  display: grid;
-  width: 52px;
-  height: 52px;
-  color: #fff;
-  font-size: 23px;
-  place-items: center;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 12px 28px rgb(54 103 210 / 25%);
-}
-
 .form-panel {
   padding: 32px 28px 12px;
   background: rgb(255 255 255 / 90%);
@@ -244,7 +209,7 @@ onMounted(() => {
 
 .form-panel :deep(.ant-input),
 .form-panel :deep(.ant-input-affix-wrapper),
-.form-panel :deep(.ant-input-number) {
+.form-panel :deep(.ant-select .ant-select-selector) {
   background: #f7f9fc;
   border-color: transparent;
   border-radius: 10px;
@@ -253,7 +218,9 @@ onMounted(() => {
 .form-panel :deep(.ant-input:hover),
 .form-panel :deep(.ant-input-affix-wrapper:hover),
 .form-panel :deep(.ant-input:focus),
-.form-panel :deep(.ant-input-affix-wrapper-focused) {
+.form-panel :deep(.ant-input-affix-wrapper-focused),
+.form-panel :deep(.ant-select:not(.ant-select-disabled):hover .ant-select-selector),
+.form-panel :deep(.ant-select-focused .ant-select-selector) {
   background: #fff;
   border-color: #91caff;
   box-shadow: 0 0 0 3px rgb(22 119 255 / 10%);
@@ -291,7 +258,7 @@ onMounted(() => {
   font-size: 24px;
 }
 
-.priority-input {
+.priority-select {
   width: 180px;
 }
 

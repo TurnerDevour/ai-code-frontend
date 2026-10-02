@@ -25,20 +25,26 @@ const showFooter = computed(() => !route.meta.hideFooter)
 </template>
 
 <style scoped>
+/* 应用外壳：占满整屏高度，只有中间内容区滚动，头部与底部保持不动 */
 .basic-layout {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .main-content {
   flex: 1;
+  min-height: 0;
   width: 100%;
   max-width: 99%;
   margin: 0 auto;
   padding: 24px;
+  overflow-y: auto;
 }
 
+/* 对话页等铺满视口的页面：内容自己内部滚动，外层不再出现滚动条 */
 .main-content.is-fullscreen {
   max-width: 100%;
   padding: 0;
+  overflow: hidden;
 }
 </style>

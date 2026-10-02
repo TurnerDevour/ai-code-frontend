@@ -36,7 +36,6 @@
                     个人中心
                   </a-menu-item>
                   <a-menu-divider />
-                  <a-menu-divider />
                   <a-menu-item @click="doLogout">
                     <LogoutOutlined />
                     退出登录
@@ -166,6 +165,7 @@ updateCurrentMenu(router.currentRoute.value.path)
 
 <style scoped>
 .header {
+  flex: 0 0 auto;
   background: #fff;
   padding: 0 24px;
 }

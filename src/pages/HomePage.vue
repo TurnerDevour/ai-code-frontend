@@ -16,7 +16,7 @@
           v-model="initPrompt"
           :loading="creating"
           :presets="PROMPT_PRESETS"
-          placeholder="使用 NoCode 创建一个高效的小工具，帮我计算......"
+          placeholder="帮我创建个人博客网站"
           @submit="handleCreateApp"
         />
       </div>
@@ -177,7 +177,8 @@ const handleCreateApp = async (prompt: string) => {
 const handleCreateBlank = () => {
   const input = document.querySelector<HTMLTextAreaElement>('.prompt-textarea textarea')
   input?.focus()
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  // 现在只有中间内容区滚动，回到顶部要作用在该容器上
+  document.querySelector<HTMLElement>('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
   message.info('在上方输入框描述你的应用，即可开始创建').then(() => {})
 }
 

@@ -10,23 +10,7 @@
       @press-enter="handlePressEnter"
     />
     <div class="prompt-toolbar">
-      <div class="toolbar-left">
-        <a-upload
-          :show-upload-list="false"
-          :before-upload="beforeUpload"
-          accept="image/*"
-          :disabled="loading"
-        >
-          <button type="button" class="tool-button">
-            <PaperClipOutlined />
-            上传
-          </button>
-        </a-upload>
-        <button type="button" class="tool-button" :disabled="loading" @click="handleOptimize">
-          <BulbOutlined />
-          优化
-        </button>
-      </div>
+      <span class="toolbar-hint">Enter 快速发送，Shift + Enter 换行</span>
       <button
         type="button"
         class="submit-button"
@@ -53,14 +37,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { message } from 'ant-design-vue'
-import {
-  ArrowUpOutlined,
-  BulbOutlined,
-  LoadingOutlined,
-  PaperClipOutlined,
-} from '@ant-design/icons-vue'
+import { ArrowUpOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 
 const props = withDefaults(
   defineProps<{
@@ -72,7 +51,7 @@ const props = withDefaults(
   {
     modelValue: '',
     loading: false,
-    placeholder: '描述越详细，页面越具体，可以一步一步完善生成效果',
+    placeholder: '请描述你想生成的网站，越详细效果越好哦',
     presets: () => [],
   },
 )
@@ -86,36 +65,6 @@ const value = computed({
   get: () => props.modelValue,
   set: (val: string) => emit('update:modelValue', val),
 })
-
-// 上传图片后将图片链接拼接进提示词
-const uploadedImages = ref<string[]>([])
-
-const beforeUpload = (file: File) => {
-  const isImage = file.type.startsWith('image/')
-  if (!isImage) {
-    message.error('只能上传图片文件').then(() => {})
-    return false
-  }
-  const reader = new FileReader()
-  reader.onload = () => {
-    const result = String(reader.result ?? '')
-    uploadedImages.value.push(result)
-    value.value = `${value.value}${value.value ? '\n' : ''}请参考图片：${result}`
-  }
-  reader.readAsDataURL(file)
-  // 仅用于本地预览，不上传到服务器
-  return false
-}
-
-const handleOptimize = () => {
-  const current = value.value.trim()
-  if (!current) {
-    message.warning('请先输入应用描述').then(() => {})
-    return
-  }
-  value.value = `${current}\n\n要求：页面结构清晰、视觉精美、支持响应式布局，交互流畅，可直接运行。`
-  message.success('已为你补充细节描述').then(() => {})
-}
 
 const handleSubmit = () => {
   const current = value.value.trim()
@@ -143,12 +92,22 @@ const handlePressEnter = (event: KeyboardEvent) => {
 
 <style scoped>
 .prompt-input {
-  padding: 18px 20px 16px;
-  background: rgb(255 255 255 / 94%);
+  padding: 20px 22px 16px;
+  background: rgb(255 255 255 / 96%);
   border: 1px solid rgb(255 255 255 / 90%);
   border-radius: 22px;
   box-shadow: 0 22px 55px rgb(31 73 125 / 14%);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
   backdrop-filter: blur(12px);
+}
+
+.prompt-input:focus-within {
+  border-color: #bfdbfe;
+  box-shadow:
+    0 22px 55px rgb(31 73 125 / 16%),
+    0 0 0 4px rgb(22 119 255 / 9%);
 }
 
 .prompt-textarea {
@@ -177,35 +136,12 @@ const handlePressEnter = (event: KeyboardEvent) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
-.toolbar-left {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.tool-button {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  height: 34px;
-  padding: 0 14px;
-  color: #5c6d86;
-  font-size: 13px;
-  background: #f4f7fc;
-  border: 1px solid #eaf0f9;
-  border-radius: 10px;
-  cursor: pointer;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease;
-}
-
-.tool-button:hover {
-  color: #1677ff;
-  background: #eef5ff;
+.toolbar-hint {
+  color: #a3b1c4;
+  font-size: 12px;
 }
 
 .submit-button {

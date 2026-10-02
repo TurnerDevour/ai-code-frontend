@@ -1,10 +1,32 @@
-/**
- * 后端接口基础地址（与 utils/request.ts 中的 baseURL 保持一致）
- */
-export const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+/** 去掉末尾多余的 /，避免拼接出双斜杠 */
+const trimTrailingSlashes = (url: string) => url.replace(/\/+$/, '')
 
 /**
- * 获取应用生成后的静态资源访问地址
+ * 后端接口基础地址（与 utils/request.ts 中的 baseURL 保持一致）
+ * 来自环境变量 VITE_API_BASE_URL，如 http://localhost:8123/api
+ */
+export const baseUrl = trimTrailingSlashes(import.meta.env.VITE_API_BASE_URL ?? '')
+
+/**
+ * 应用生成产物的预览地址前缀，来自环境变量 VITE_APP_PREVIEW_BASE_URL
+ * 本地形如：http://localhost:8123/api/static
+ * 未配置时退回「接口地址 + /static」，与旧行为保持一致
+ */
+export const previewBaseUrl = trimTrailingSlashes(
+  import.meta.env.VITE_APP_PREVIEW_BASE_URL ?? `${baseUrl}/static`,
+)
+
+/**
+ * 应用部署后的访问地址前缀，来自环境变量 VITE_APP_DEPLOY_BASE_URL
+ * 对应后端 AppConstant.CODE_DEPLOY_HOST，本地形如：http://localhost
+ * 未配置时退回 http://localhost，与旧行为保持一致
+ */
+export const deployBaseUrl = trimTrailingSlashes(
+  import.meta.env.VITE_APP_DEPLOY_BASE_URL ?? 'http://localhost',
+)
+
+/**
+ * 获取应用生成后的静态资源访问地址（预览域名 + 产物目录）
  * 本地形如：http://localhost:8123/api/static/multi_file_{appId}/
  * @param codeGenType 代码生成类型
  * @param appId 应用 id
@@ -12,14 +34,15 @@ export const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/,
  */
 export const getStaticUrl = (codeGenType?: string, appId?: string, deployKey?: string) => {
   const path = deployKey ? deployKey : `${codeGenType ?? 'multi_file'}_${appId ?? ''}`
-  return `${baseUrl}/static/${path}/`
+  return `${previewBaseUrl}/${path}/`
 }
 
 /**
- * 获取应用「部署后」的访问地址（与生成产物的浏览地址不同，请勿混用）
- * 后端返回：AppConstant.CODE_DEPLOY_HOST + "/" + deployKey + "/"，即 http://localhost/{deployKey}/
+ * 获取应用「部署后」的访问地址（与生成产物的预览地址不同，请勿混用）
+ * 对应后端返回：AppConstant.CODE_DEPLOY_HOST + "/" + deployKey + "/"
+ * 本地形如：http://localhost/{deployKey}/
  * @param deployKey 部署标识
  */
 export const getDeployUrl = (deployKey: string) => {
-  return `http://localhost/${deployKey}/`
+  return `${deployBaseUrl}/${deployKey}/`
 }

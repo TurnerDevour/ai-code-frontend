@@ -1,15 +1,11 @@
 <template>
   <div class="user-manage-page">
-    <div class="page-header">
-      <div>
-        <span class="eyebrow">USER MANAGEMENT</span>
-        <h1>用户管理</h1>
-        <p>查看并管理平台中的用户账号与权限。</p>
-      </div>
-      <div class="header-icon">
-        <TeamOutlined />
-      </div>
-    </div>
+    <PageHeader
+      eyebrow="USER MANAGEMENT"
+      title="用户管理"
+      description="查看并管理平台中的用户账号与权限。"
+      :icon="TeamOutlined"
+    />
 
     <section class="search-panel">
       <div class="panel-label">
@@ -57,6 +53,7 @@
         :columns="columns"
         :data-source="dataList"
         :pagination="pagination"
+        :loading="loading"
         @change="doTableChange"
       >
         <template #bodyCell="{ column, record }">
@@ -89,6 +86,8 @@ import { deleteUser, listUserVoByPage } from '@/api/userController.ts'
 import { message } from 'ant-design-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { DeleteOutlined, SearchOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons-vue'
+import PageHeader from '@/components/PageHeader.vue'
+import { MANAGE_PAGE_SIZE } from '@/constant/app'
 
 const columns = [
   {
@@ -135,26 +134,27 @@ const columns = [
 
 const dataList = ref<API.UserVO[]>([])
 const total = ref<number>(0)
+const loading = ref(false)
 
 // 搜索条件
 const searchParams = reactive<API.UserQueryRequest>({
   pageNum: 1,
-  pageSize: 10,
+  pageSize: MANAGE_PAGE_SIZE,
 })
 
-// 分页参数
+// 分页参数（字段与 a-table 保持一致：current / pageSize）
 const pagination = computed(() => {
   return {
-    pageNum: searchParams.pageNum ?? 1,
-    pageSize: searchParams.pageSize ?? 10,
+    current: searchParams.pageNum ?? 1,
+    pageSize: searchParams.pageSize ?? MANAGE_PAGE_SIZE,
     total: total.value,
     showSizeChanger: true,
-    showTotal: (total: number) => `共 ${total} 条`,
+    showTotal: (value: number) => `共 ${value} 条`,
   }
 })
 // 表格变化处理
-const doTableChange = (page: { pageNum: number; pageSize: number }) => {
-  searchParams.pageNum = page.pageNum
+const doTableChange = (page: { current: number; pageSize: number }) => {
+  searchParams.pageNum = page.current
   searchParams.pageSize = page.pageSize
   fetchData()
 }
@@ -181,14 +181,19 @@ const doDelete = async (id: string) => {
 
 // 获取数据
 const fetchData = async () => {
-  const res = await listUserVoByPage({
-    ...searchParams,
-  })
-  if (res.data.data) {
-    dataList.value = res.data.data.records ?? []
-    total.value = Number(res.data.data.totalRow) ?? 0
-  } else {
-    message.error('获取数据失败，' + res.data.message).then(() => {})
+  loading.value = true
+  try {
+    const res = await listUserVoByPage({
+      ...searchParams,
+    })
+    if (res.data.data) {
+      dataList.value = res.data.data.records ?? []
+      total.value = Number(res.data.data.totalRow ?? 0)
+    } else {
+      message.error('获取数据失败，' + res.data.message).then(() => {})
+    }
+  } finally {
+    loading.value = false
   }
 }
 
@@ -203,49 +208,9 @@ onMounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 160px);
+  min-height: 100%;
   max-width: 1382px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: 8px 0 28px;
-}
-
-.eyebrow {
-  display: block;
-  color: #5375a4;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 1.6px;
-}
-
-.page-header h1 {
-  margin: 8px 0 7px;
-  color: #172b4d;
-  font-size: 28px;
-  line-height: 1.3;
-}
-
-.page-header p {
-  margin: 0;
-  color: #8190a5;
-  font-size: 14px;
-}
-
-.header-icon {
-  display: grid;
-  width: 52px;
-  height: 52px;
-  color: #fff;
-  font-size: 23px;
-  place-items: center;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 12px 28px rgb(54 103 210 / 25%);
 }
 
 .search-panel,
@@ -291,7 +256,7 @@ onMounted(() => {
 }
 
 .search-form :deep(.ant-input-affix-wrapper) {
-  width: 210px;
+  width: 200px;
   height: 38px;
   background: #f7f9fc;
   border-color: transparent;
@@ -389,8 +354,19 @@ onMounted(() => {
   border-bottom: 0;
 }
 
+.table-panel :deep(.ant-table-thead > tr > th::before) {
+  display: none;
+}
+
 .table-panel :deep(.ant-table-tbody > tr > td) {
+  padding: 12px 16px;
   border-bottom-color: #eef3fa;
+  transition: background 0.2s ease;
+}
+
+.table-panel :deep(.ant-table-tbody > tr > td:first-child) {
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .table-panel :deep(.ant-table-tbody > tr:hover > td) {
@@ -444,10 +420,6 @@ onMounted(() => {
 }
 
 @media (max-width: 760px) {
-  .page-header {
-    margin-top: 0;
-  }
-
   .user-manage-page {
     min-height: auto;
   }
@@ -482,20 +454,4 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 480px) {
-  .header-icon {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
-    border-radius: 13px;
-  }
-
-  .page-header h1 {
-    font-size: 24px;
-  }
-
-  .page-header p {
-    max-width: 240px;
-  }
-}
 </style>
