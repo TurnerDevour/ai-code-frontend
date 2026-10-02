@@ -182,11 +182,10 @@ const handleCreateBlank = () => {
   message.info('在上方输入框描述你的应用，即可开始创建').then(() => {})
 }
 
-// 查看对话：带 view=1 进入对话页，表示只查看、不自动发消息
+// 查看对话：进入对话页并加载历史消息（prompt 参数只由创建应用的流程携带）
 const handleViewChat = async (app: API.AppVO) => {
   await router.push({
     path: `/app/chat/${app.id}`,
-    query: { view: '1' },
   })
 }
 

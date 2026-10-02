@@ -1,4 +1,18 @@
 /**
+ * 将后端返回的时间字符串解析为时间戳，用于排序与比较
+ * （同样兼容 Safari 对 "yyyy-MM-dd HH:mm:ss" 的解析）
+ * @param time 时间字符串
+ * @returns 时间戳，无法解析时返回 0
+ */
+export const parseTime = (time?: string) => {
+  if (!time) {
+    return 0
+  }
+  const timestamp = new Date(time.replace(/-/g, '/')).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+/**
  * 将时间格式化为「刚刚 / x 分钟前 / x 小时前 / x 天前 / 日期」的形式
  * @param time 时间字符串
  */

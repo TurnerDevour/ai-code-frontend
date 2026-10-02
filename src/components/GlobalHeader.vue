@@ -63,6 +63,7 @@ import {
   HomeOutlined,
   UserAddOutlined,
   AppstoreOutlined,
+  CommentOutlined,
   LogoutOutlined,
 } from '@ant-design/icons-vue'
 import { ACCESS } from '@/constant/access.ts'
@@ -85,6 +86,7 @@ const iconMap = {
   HomeOutlined,
   UserAddOutlined,
   AppstoreOutlined,
+  CommentOutlined,
 } as const
 type IconName = keyof typeof iconMap
 const isIconName = (value: unknown): value is IconName => {

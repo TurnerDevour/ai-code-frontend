@@ -95,6 +95,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponsePageChatHistory = {
+    code?: number
+    data?: PageChatHistory
+    message?: string
+  }
+
   type BaseResponsePageUserVO = {
     code?: number
     data?: PageUserVO
@@ -117,6 +123,39 @@ declare namespace API {
     code?: number
     data?: UserVO
     message?: string
+  }
+
+  type ChatHistory = {
+    id?: string
+    message?: string
+    messageType?: string
+    appId?: string
+    userId?: string
+    createTime?: string
+    updateTime?: string
+    parentId?: string
+    isDelete?: number
+  }
+
+  type ChatHistoryQueryRequest = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    /** id */
+    id?: string
+    /** 应用id */
+    appId?: string
+    /** 创建用户id */
+    userId?: string
+    /** 消息类型：user/ai/error */
+    messageType?: string
+    /** 消息内容（模糊查询） */
+    message?: string
+    /** 父消息id（用于上下文关联） */
+    parentId?: string
+    /** 上一次查询的最后一条消息的创建时间（游标分页，用于向前加载更多历史记录） */
+    lastCreateTime?: string
   }
 
   type chatToGenCodeParams = {
@@ -145,6 +184,10 @@ declare namespace API {
     id: string
   }
 
+  type listAppChatHistoryParams = {
+    appId: string
+  }
+
   type LoginUserVO = {
     id?: string
     userAccount?: string
@@ -158,6 +201,15 @@ declare namespace API {
 
   type PageAppVO = {
     records?: AppVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
+  type PageChatHistory = {
+    records?: ChatHistory[]
     pageNumber?: number
     pageSize?: number
     totalPage?: number

@@ -91,6 +91,17 @@ const menuItems: RouteRecordRaw[] = [
     component: () => import('@/pages/admin/AppManagePage.vue'),
   },
   {
+    path: '/admin/chatManage',
+    name: 'chatManage',
+    meta: {
+      title: '对话管理',
+      icon: 'CommentOutlined',
+      showNav: true,
+      role: ACCESS.ADMIN,
+    },
+    component: () => import('@/pages/admin/ChatManagePage.vue'),
+  },
+  {
     path: '/admin/appEdit/:id',
     name: 'appEditByAdmin',
     meta: {

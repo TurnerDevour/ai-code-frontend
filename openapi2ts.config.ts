@@ -5,7 +5,7 @@ export default {
   hook: {
     afterOpenApiDataInited(openAPIData: unknown) {
       const updateIdTypes = (value: unknown): void => {
-        const identifierNames = new Set(['id', 'appId', 'userId'])
+        const identifierNames = new Set(['id', 'appId', 'userId', 'parentId'])
 
         if (!value || typeof value !== 'object') {
           return
