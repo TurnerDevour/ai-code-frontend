@@ -6,6 +6,8 @@ export const CODE_GEN_TYPE = {
   HTML: 'html',
   /** 原生多文件模式 */
   MULTI_FILE: 'multi_file',
+  /** Vue 模式 */
+  VUE_PROJECT: 'vue_project',
 } as const
 
 /** 代码生成类型取值 */
@@ -15,6 +17,7 @@ export type CodeGenType = (typeof CODE_GEN_TYPE)[keyof typeof CODE_GEN_TYPE]
 export const CODE_GEN_TYPE_OPTIONS: { label: string; value: CodeGenType }[] = [
   { label: '原生 HTML 模式', value: CODE_GEN_TYPE.HTML },
   { label: '原生多文件模式', value: CODE_GEN_TYPE.MULTI_FILE },
+  { label: 'Vue 模式', value: CODE_GEN_TYPE.VUE_PROJECT },
 ]
 
 /** 代码生成类型名称映射：值 -> 中文名称 */

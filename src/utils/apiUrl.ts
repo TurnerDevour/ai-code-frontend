@@ -1,3 +1,5 @@
+import { CODE_GEN_TYPE } from '@/constant/codeGenType'
+
 /** 去掉末尾多余的 /，避免拼接出双斜杠 */
 const trimTrailingSlashes = (url: string) => url.replace(/\/+$/, '')
 
@@ -33,6 +35,11 @@ export const deployBaseUrl = trimTrailingSlashes(
  * @param deployKey 部署标识，部署后可通过该地址访问产物
  */
 export const getStaticUrl = (codeGenType?: string, appId?: string, deployKey?: string) => {
+  // Vue 工程模式的产物目录是 {codeGenType}_{appId}（与后端 CodeFileSaverTemplate 一致），
+  // 构建输出在其 dist 子目录中，因此必须带上应用目录，否则会请求到不存在的 /static/dist/index.html
+  if (codeGenType === CODE_GEN_TYPE.VUE_PROJECT) {
+    return `${previewBaseUrl}/vue_project_${appId ?? ''}/dist/index.html`
+  }
   const path = deployKey ? deployKey : `${codeGenType ?? 'multi_file'}_${appId ?? ''}`
   return `${previewBaseUrl}/${path}/`
 }

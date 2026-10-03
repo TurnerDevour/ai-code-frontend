@@ -237,6 +237,11 @@ import AppModal from '@/components/AppModal.vue'
 import { getStaticUrl } from '@/utils/apiUrl'
 import { renderMarkdown } from '@/utils/markdown'
 import { streamSse } from '@/utils/sse'
+import {
+  STREAM_MESSAGE_TYPE,
+  parseStreamMessage,
+  parseToolArguments,
+} from '@/utils/streamMessage'
 import { parseTime } from '@/utils/time'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { ACCESS } from '@/constant/access'
@@ -459,6 +464,27 @@ const genCode = async (prompt: string) => {
       updater(target)
     }
   }
+  // 追加流式文本分片（节流渲染）
+  const appendChunk = (chunk: string) => {
+    if (!chunk) {
+      return
+    }
+    updateAiMessage((target) => {
+      target.content += chunk
+      scheduleMarkdown(target)
+    })
+    scrollToBottom()
+  }
+  // 追加工具写入结果：把写入的文件路径与内容渲染成 Markdown 代码块
+  const appendToolExecutedMessage = (args: string) => {
+    const file = parseToolArguments(args)
+    if (!file) {
+      return
+    }
+    const suffix = file.relativePath.split('.').pop() ?? ''
+    const fence = suffix && suffix !== file.relativePath ? suffix : 'text'
+    appendChunk(`\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`)
+  }
   generating.value = true
   previewUrl.value = ''
   await scrollToBottom()
@@ -488,7 +514,18 @@ const genCode = async (prompt: string) => {
         showGeneratedWebsite()
         return
       }
-      // 后端每个数据块都包装成了 JSON：{"d":"代码块"}
+      // Vue 工程模式下后端每个数据块是 JSON 消息，按类型分发；其它模式是 {d: '文本'}
+      const streamMessage = parseStreamMessage(event.data)
+      if (streamMessage) {
+        if (streamMessage.type === STREAM_MESSAGE_TYPE.TOOL_EXECUTED) {
+          appendToolExecutedMessage(streamMessage.arguments)
+        } else if (streamMessage.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
+          appendChunk('\n\n> [🔧 选择工具] 写入文件\n\n')
+        } else {
+          appendChunk(streamMessage.data)
+        }
+        return
+      }
       const payload = event.data as unknown
       const chunk =
         typeof payload === 'string'
@@ -496,14 +533,7 @@ const genCode = async (prompt: string) => {
           : payload && typeof (payload as { d?: unknown }).d === 'string'
             ? (payload as { d: string }).d
             : ''
-      if (!chunk) {
-        return
-      }
-      updateAiMessage((target) => {
-        target.content += chunk
-        scheduleMarkdown(target)
-      })
-      scrollToBottom()
+      appendChunk(chunk)
     },
     onError: (error) => {
       updateAiMessage((target) => {
