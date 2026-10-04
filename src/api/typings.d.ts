@@ -2,6 +2,10 @@ declare namespace API {
   type AppAddRequest = {
     /** 应用初始化的 prompt */
     initPrompt: string
+    /** 代码生成类型（枚举）：html / multi_file / vue_project，默认 multi_file */
+    codeGenType?: string
+    /** AI 模型类型（枚举）：deepseek-flash / deepseek-v4-pro，默认 deepseek-flash */
+    aiModelType?: string
   }
 
   type AppAdminUpdateRequest = {
@@ -56,6 +60,7 @@ declare namespace API {
     cover?: string
     initPrompt?: string
     codeGenType?: string
+    aiModelType?: string
     deployKey?: string
     deployedTime?: string
     priority?: number

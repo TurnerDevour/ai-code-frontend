@@ -16,6 +16,7 @@
         <div class="detail-app-name" :title="app.appName">{{ app.appName || '未命名应用' }}</div>
         <div class="detail-app-type">
           <CodeGenTypeTag :code-gen-type="app.codeGenType" />
+          <AiModelTypeTag :ai-model-type="app.aiModelType" />
           <AppPriorityTag :priority="app.priority" compact />
         </div>
       </div>
@@ -62,6 +63,7 @@ import { DeleteOutlined, EditOutlined, ProfileOutlined, UserOutlined } from '@an
 import AppModal from '@/components/AppModal.vue'
 import AppPriorityTag from '@/components/AppPriorityTag.vue'
 import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
+import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
 
 const props = withDefaults(
   defineProps<{

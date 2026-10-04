@@ -14,6 +14,8 @@
       <div class="hero-input">
         <PromptInput
           v-model="initPrompt"
+          v-model:code-gen-type="newAppCodeGenType"
+          v-model:ai-model-type="newAppAiModelType"
           :loading="creating"
           :presets="PROMPT_PRESETS"
           placeholder="帮我创建个人博客网站"
@@ -118,11 +120,18 @@ import AppCard from '@/components/AppCard.vue'
 import { addApp, listGoodAppVoByPage, listMyAppVoByPage } from '@/api/appController'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { HOME_PAGE_SIZE, PROMPT_PRESETS } from '@/constant/app'
+import { CODE_GEN_TYPE } from '@/constant/codeGenType'
+import type { CodeGenType } from '@/constant/codeGenType'
+import { AI_MODEL_TYPE } from '@/constant/aiModelType'
+import type { AiModelType } from '@/constant/aiModelType'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
 
 const initPrompt = ref('')
+// 创建应用时选择的代码生成类型与 AI 模型类型（与后端 AppAddRequest 对应）
+const newAppCodeGenType = ref<CodeGenType>(CODE_GEN_TYPE.MULTI_FILE)
+const newAppAiModelType = ref<AiModelType>(AI_MODEL_TYPE.DEEPSEEK_FLASH)
 const creating = ref(false)
 
 const myApps = ref<API.AppVO[]>([])
@@ -146,7 +155,10 @@ const goodSearch = reactive<API.AppQueryRequest>({
 })
 
 // 创建应用并跳转到对话页
-const handleCreateApp = async (prompt: string) => {
+const handleCreateApp = async (
+  prompt: string,
+  options: { codeGenType: CodeGenType; aiModelType: AiModelType },
+) => {
   const loginUser = loginUserStore.loginUser
   if (!loginUser.id) {
     message.warning('请先登录').then(() => {})
@@ -158,7 +170,11 @@ const handleCreateApp = async (prompt: string) => {
   }
   creating.value = true
   try {
-    const res = await addApp({ initPrompt: prompt })
+    const res = await addApp({
+      initPrompt: prompt,
+      codeGenType: options.codeGenType,
+      aiModelType: options.aiModelType,
+    })
     const appId = res.data.data
     if (res.data.code === 0 && appId) {
       initPrompt.value = ''

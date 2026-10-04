@@ -19,6 +19,11 @@
     </div>
     <div class="card-body">
       <h3 class="card-title" :title="app.appName">{{ app.appName || '未命名应用' }}</h3>
+      <!-- 生成配置：代码模式 + AI 模型（老数据可能没有，缺一项就不展示该标签） -->
+      <div v-if="app.codeGenType || app.aiModelType" class="card-config">
+        <CodeGenTypeTag v-if="app.codeGenType" :code-gen-type="app.codeGenType" show-icon />
+        <AiModelTypeTag v-if="app.aiModelType" :ai-model-type="app.aiModelType" show-icon />
+      </div>
       <div class="card-meta">
         <a-avatar :size="26" :src="app.user?.userAvatar">
           <template #icon><UserOutlined /></template>
@@ -51,6 +56,8 @@ import { UserOutlined, StarFilled, MessageOutlined, ExportOutlined } from '@ant-
 import { formatRelativeTime } from '@/utils/time'
 import { GOOD_APP_PRIORITY } from '@/constant/app'
 import { getDeployUrl } from '@/utils/apiUrl'
+import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
+import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -167,7 +174,7 @@ const handleViewWork = () => {
   flex: 1;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 18px 18px;
+  padding: 16px 18px 14px;
 }
 
 .card-title {
@@ -179,6 +186,18 @@ const handleViewWork = () => {
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 生成配置：与卡片内其它信息块统一为浅底 + 细描边 + 10px 圆角 */
+.card-config {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #eef3fa;
+  border-radius: 10px;
+  background: #f8fbff;
 }
 
 .card-meta {
@@ -270,5 +289,13 @@ const handleViewWork = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 窄屏：两个标签各占一行，避免长模型名被挤压 */
+@media (max-width: 760px) {
+  .card-config {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

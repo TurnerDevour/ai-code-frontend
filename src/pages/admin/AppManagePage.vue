@@ -161,19 +161,20 @@ import { CODE_GEN_TYPE_OPTIONS } from '@/constant/codeGenType'
 
 const router = useRouter()
 
-// 列宽使用百分比，配合 table-layout: fixed 保证表格始终适配容器宽度，不出现横向滚动条
+// 列宽由 table-layout: fixed 精确分配：
+// id 列给足 19 位雪花 id 的单行宽度，操作列预留「编辑+取消精选+删除」三个按钮的宽度
 const columns = [
   {
     title: 'id',
     dataIndex: 'id',
     align: 'center',
-    width: '11%',
+    width: 150,
   },
   {
     title: '应用名称',
     dataIndex: 'appName',
     align: 'center',
-    width: '18%',
+    width: '14%',
   },
   {
     title: '应用封面',
@@ -185,13 +186,13 @@ const columns = [
     title: '生成类型',
     dataIndex: 'codeGenType',
     align: 'center',
-    width: '11%',
+    width: '10%',
   },
   {
     title: '优先级',
     dataIndex: 'priority',
     align: 'center',
-    width: '8%',
+    width: '9%',
   },
   {
     title: '创建用户',
@@ -203,13 +204,13 @@ const columns = [
     title: '创建时间',
     dataIndex: 'createTime',
     align: 'center',
-    width: '13%',
+    width: '12%',
   },
   {
     title: '操作',
     key: 'action',
     align: 'center',
-    width: '19%',
+    width: '22%',
   },
 ]
 
@@ -485,19 +486,24 @@ onMounted(() => {
   font-size: 13px;
 }
 
-/* 列宽自适应容器宽度、长内容换行，避免出现横向滚动条 */
-.table-panel :deep(.ant-table-content) {
-  overflow-x: hidden;
-}
-
+/* 列宽按定义精确分配：id 与操作按钮组都能拿到足够宽度，不会被挤到换行；
+   容器过窄时由 .ant-table-content 横向滚动，而不是把内容挤成多行 */
 .table-panel :deep(table) {
   width: 100%;
+  min-width: 1240px;
   table-layout: fixed;
 }
 
 .table-panel :deep(.ant-table-thead > tr > th),
 .table-panel :deep(.ant-table-tbody > tr > td) {
-  word-break: break-word;
+  white-space: nowrap;
+}
+
+/* 操作列：按钮组左右各留出内缩间距，不贴单元格边线，也不会溢出被面板裁掉 */
+.table-panel :deep(.ant-table-thead > tr > th:last-child),
+.table-panel :deep(.ant-table-tbody > tr > td:last-child) {
+  padding-right: 20px;
+  padding-left: 20px;
 }
 
 .table-panel :deep(.ant-table-thead > tr > th) {
@@ -521,16 +527,10 @@ onMounted(() => {
   background: #f8fbff !important;
 }
 
+/* id 列：单行展示（列宽固定，超宽时由 ellipsis 截断） */
 .table-panel :deep(.ant-table-tbody > tr > td:first-child) {
   color: #94a3b8;
   font-size: 12px;
-}
-
-/* 操作列按钮较多，适当收窄左右内边距，尽量单行展示 */
-.table-panel :deep(.ant-table-thead > tr > th:last-child),
-.table-panel :deep(.ant-table-tbody > tr > td:last-child) {
-  padding-right: 8px;
-  padding-left: 8px;
 }
 
 .table-panel :deep(.ant-pagination) {
@@ -576,6 +576,7 @@ onMounted(() => {
 
 .empty-cover {
   display: inline-flex;
+  flex-wrap: nowrap;
   gap: 5px;
   align-items: center;
   padding: 2px 10px;
@@ -588,14 +589,23 @@ onMounted(() => {
 
 .user-cell {
   display: inline-flex;
+  flex-wrap: nowrap;
   gap: 8px;
   align-items: center;
+  max-width: 160px;
   padding: 3px 12px 3px 4px;
+  overflow: hidden;
   color: #3c5677;
   font-weight: 500;
   border: 1px solid #eef3fa;
   border-radius: 999px;
   background: #f8fbff;
+}
+
+.user-cell > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-cell :deep(.ant-avatar) {
@@ -609,7 +619,7 @@ onMounted(() => {
 
 .action-buttons {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   justify-content: center;
   align-items: center;
@@ -621,12 +631,14 @@ onMounted(() => {
 
 .action-buttons :deep(.ant-btn) {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 4px;
   align-items: center;
   height: 28px;
   padding: 0 11px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   border-color: transparent;
   border-radius: 8px;
   box-shadow: none;

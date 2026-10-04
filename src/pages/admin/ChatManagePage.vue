@@ -85,7 +85,7 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.dataIndex === 'message'">
-            <a-tooltip :title="record.message" placement="topLeft">
+            <a-tooltip :title="record.message" placement="topLeft" overlay-class-name="message-tooltip">
               <span class="message-text">{{ record.message }}</span>
             </a-tooltip>
           </template>
@@ -131,49 +131,50 @@ import { CHAT_MESSAGE_TYPE_OPTIONS } from '@/constant/chat'
 
 const router = useRouter()
 
-// 列宽使用百分比，配合 table-layout: fixed 保证表格始终适配容器宽度，不出现横向滚动条
+// 列宽由 table-layout: fixed 精确分配：
+// id / 应用 id 给足 19 位雪花 id 的单行宽度，消息内容列分到最宽并限高 3 行
 const columns = [
   {
     title: 'id',
     dataIndex: 'id',
     align: 'center',
-    width: '14%',
+    width: 160,
   },
   {
     title: '消息内容',
     dataIndex: 'message',
-    align: 'center',
-    width: '24%',
+    align: 'left',
+    width: 340,
   },
   {
     title: '消息类型',
     dataIndex: 'messageType',
     align: 'center',
-    width: '11%',
+    width: 110,
   },
   {
     title: '应用 id',
     dataIndex: 'appId',
     align: 'center',
-    width: '13%',
+    width: 160,
   },
   {
     title: '创建用户 id',
     dataIndex: 'userId',
     align: 'center',
-    width: '13%',
+    width: 160,
   },
   {
     title: '创建时间',
     dataIndex: 'createTime',
     align: 'center',
-    width: '14%',
+    width: 150,
   },
   {
     title: '操作',
     key: 'action',
     align: 'center',
-    width: '11%',
+    width: 150,
   },
 ]
 
@@ -411,19 +412,22 @@ onMounted(() => {
   font-size: 13px;
 }
 
-/* 列宽自适应容器宽度、长内容换行，避免出现横向滚动条 */
-.table-panel :deep(.ant-table-content) {
-  overflow-x: hidden;
-}
-
+/* 列宽按定义精确分配，内容一律单行（仅消息内容列限高 3 行）；
+   容器过窄时由 .ant-table-content 横向滚动，而不是把 id 拆成竖排多行 */
 .table-panel :deep(table) {
   width: 100%;
+  min-width: 1230px;
   table-layout: fixed;
 }
 
 .table-panel :deep(.ant-table-thead > tr > th),
 .table-panel :deep(.ant-table-tbody > tr > td) {
-  word-break: break-word;
+  white-space: nowrap;
+}
+
+/* 消息内容列：允许换行并最多展示 3 行，完整内容通过 tooltip 查看 */
+.table-panel :deep(.ant-table-tbody > tr > td:nth-child(2)) {
+  white-space: normal;
 }
 
 .table-panel :deep(.ant-table-thead > tr > th) {
@@ -456,20 +460,29 @@ onMounted(() => {
   padding: 8px 12px 0;
 }
 
-/* 消息内容可能很长，单元格内只展示一行，完整内容通过 tooltip 查看 */
+/* 消息内容可能很长：单元格内最多展示 3 行，完整内容通过 tooltip 查看 */
 .message-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #52627a;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+/* 应用 id：单行展示，过长时省略号截断，不会把列撑破 */
+.app-id-link {
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
-  color: #52627a;
+  color: #1677ff;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
-}
-
-.app-id-link {
-  color: #1677ff;
-  font-weight: 600;
   cursor: pointer;
   transition: color 0.2s ease;
 }
@@ -485,7 +498,7 @@ onMounted(() => {
 
 .action-buttons {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   justify-content: center;
   align-items: center;
@@ -497,12 +510,14 @@ onMounted(() => {
 
 .action-buttons :deep(.ant-btn) {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 4px;
   align-items: center;
   height: 28px;
   padding: 0 11px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   border-color: transparent;
   border-radius: 8px;
   box-shadow: none;
@@ -566,5 +581,43 @@ onMounted(() => {
   .table-heading {
     padding: 18px;
   }
+}
+</style>
+
+<!--
+  消息内容 tooltip：浮层由 ant-design-vue 挂到 body 上，scoped 样式命中不了，
+  因此用 overlay-class-name 定位，走非 scoped 样式并限制最大高度。
+-->
+<style>
+.message-tooltip {
+  max-width: 520px;
+  border-radius: 12px;
+}
+
+.message-tooltip .ant-tooltip-inner {
+  max-height: 220px;
+  padding: 10px 14px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.75;
+  /* 长消息保留原始换行 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 40%) transparent;
+}
+
+.message-tooltip .ant-tooltip-inner::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-tooltip .ant-tooltip-inner::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 35%);
+}
+
+.message-tooltip .ant-tooltip-inner::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>
