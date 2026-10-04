@@ -83,7 +83,7 @@
 
       <div class="toolbar-actions">
         <span class="toolbar-counter" :class="{ 'is-limit': isAtLimit }">
-          {{ value.length }} / {{ maxlength }}
+          {{ value.length }} / {{ CHAT_INPUT_MAX_LENGTH }}
         </span>
         <span class="toolbar-hint">
           <kbd class="hint-key">Enter</kbd>
@@ -126,6 +126,7 @@ import { CODE_GEN_TYPE, CODE_GEN_TYPE_OPTIONS } from '@/constant/codeGenType'
 import type { CodeGenType } from '@/constant/codeGenType'
 import { AI_MODEL_TYPE, AI_MODEL_TYPE_OPTIONS } from '@/constant/aiModelType'
 import type { AiModelType } from '@/constant/aiModelType'
+import { CHAT_INPUT_MAX_LENGTH } from '@/constant/chat.ts'
 
 /** 每个选项配一个图标，让下拉列表更易扫读 */
 const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
@@ -145,7 +146,7 @@ const props = withDefaults(
     placeholder?: string
     /** 预设提示词，不传则不展示推荐区域 */
     presets?: readonly string[]
-    /** 最大可输入字符数 */
+    /** 输入字数限制，默认 2000 */
     maxlength?: number
     codeGenType?: CodeGenType
     aiModelType?: AiModelType
@@ -155,7 +156,7 @@ const props = withDefaults(
     loading: false,
     placeholder: '请描述你想生成的网站，越详细效果越好哦',
     presets: () => [],
-    maxlength: 1000,
+    maxlength: 2000,
     codeGenType: CODE_GEN_TYPE.MULTI_FILE,
     aiModelType: AI_MODEL_TYPE.DEEPSEEK_FLASH,
   },
@@ -224,8 +225,9 @@ const handlePreset = (preset: string) => {
 }
 
 const handlePressEnter = (event: KeyboardEvent) => {
-  // Enter 直接提交，Shift + Enter 换行
-  if (event.shiftKey) {
+  // 回车提交、Shift + 回车换行（与对话页输入框一致）
+  // 输入法组合期间的回车用于确认候选词，此时不提交
+  if (event.shiftKey || event.isComposing) {
     return
   }
   event.preventDefault()

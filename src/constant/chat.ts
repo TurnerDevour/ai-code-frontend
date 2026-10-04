@@ -42,3 +42,6 @@ export const CHAT_HISTORY_PAGE_SIZE = 10
 
 /** 展示应用网站所需的最少对话记录数（一条用户消息 + 一条 AI 消息） */
 export const MIN_CHAT_HISTORY_FOR_PREVIEW = 2
+
+/** 提示词输入框最大可输入字符数（首页与对话页输入框共用，计数与上限校验取同一来源） */
+export const CHAT_INPUT_MAX_LENGTH = 2000

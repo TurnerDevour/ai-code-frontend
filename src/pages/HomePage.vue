@@ -18,6 +18,7 @@
           v-model:ai-model-type="newAppAiModelType"
           :loading="creating"
           :presets="PROMPT_PRESETS"
+          :maxlength="CHAT_INPUT_MAX_LENGTH"
           placeholder="帮我创建个人博客网站"
           @submit="handleCreateApp"
         />
@@ -124,6 +125,7 @@ import { CODE_GEN_TYPE } from '@/constant/codeGenType'
 import type { CodeGenType } from '@/constant/codeGenType'
 import { AI_MODEL_TYPE } from '@/constant/aiModelType'
 import type { AiModelType } from '@/constant/aiModelType'
+import { CHAT_INPUT_MAX_LENGTH } from '@/constant/chat.ts'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()

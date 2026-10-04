@@ -40,6 +40,11 @@
           <template #icon><ProfileOutlined /></template>
           应用详情
         </a-button>
+        <a-tooltip v-if="canChat" title="下载代码">
+          <a-button class="download-button" :loading="downloading" @click="handleDownload">
+            <template #icon><DownloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
         <a-button v-if="canChat" class="deploy-button" :loading="deploying" @click="handleDeploy">
           <template #icon><CloudUploadOutlined /></template>
           部署
@@ -105,15 +110,28 @@
                 v-model:value="userInput"
                 class="chat-textarea"
                 :rows="3"
-                :maxlength="2000"
+                :maxlength="CHAT_INPUT_MAX_LENGTH"
                 :disabled="generating || !canChat"
                 :placeholder="
                   canChat
                     ? '请描述你想生成的网站，越详细效果越好哦'
                     : '这是别人的作品，无法在此对话'
                 "
+                @press-enter="handlePressEnter"
               />
               <div class="input-toolbar">
+                <span class="toolbar-counter" :class="{ 'is-limit': isInputAtLimit }">
+                  {{ userInput.length }} / {{ CHAT_INPUT_MAX_LENGTH }}
+                </span>
+                <span v-if="canChat" class="toolbar-hint">
+                  <kbd class="hint-key">Enter</kbd>
+                  发送
+                  <span class="hint-divider"></span>
+                  <kbd class="hint-key">Shift</kbd>
+                  +
+                  <kbd class="hint-key">Enter</kbd>
+                  换行
+                </span>
                 <button
                   type="button"
                   class="send-button"
@@ -221,6 +239,7 @@ import {
   CloudUploadOutlined,
   DesktopOutlined,
   DownOutlined,
+  DownloadOutlined,
   EditOutlined,
   ExclamationCircleOutlined,
   ExportOutlined,
@@ -232,11 +251,16 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { deleteApp, deployApp, getAppVoById, updateApp } from '@/api/appController'
+import { deleteApp, deployApp, downloadApp, getAppVoById, updateApp } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
 import { getStaticUrl } from '@/utils/apiUrl'
+import {
+  parseDownloadFileName,
+  parseResponseErrorMessage,
+  saveBlobAsFile,
+} from '@/utils/fileDownload'
 import { renderMarkdown } from '@/utils/markdown'
 import { streamSse } from '@/utils/sse'
 import {
@@ -249,6 +273,7 @@ import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { ACCESS } from '@/constant/access'
 import {
   CHAT_HISTORY_PAGE_SIZE,
+  CHAT_INPUT_MAX_LENGTH,
   CHAT_MESSAGE_TYPE,
   MIN_CHAT_HISTORY_FOR_PREVIEW,
 } from '@/constant/chat'
@@ -289,6 +314,8 @@ const historyLoaded = ref(false)
 const userInput = ref('')
 const generating = ref(false)
 const deploying = ref(false)
+/** 应用代码打包下载中 */
+const downloading = ref(false)
 const previewUrl = ref('')
 const previewKey = ref(0)
 const messageListRef = ref<HTMLElement | null>(null)
@@ -573,6 +600,9 @@ const genCode = async (prompt: string) => {
   })
 }
 
+// 是否已达到输入上限（达到后计数器转为警示色，与首页输入框一致）
+const isInputAtLimit = computed(() => userInput.value.length >= CHAT_INPUT_MAX_LENGTH)
+
 // 发送用户消息
 const handleSend = async () => {
   if (!canChat.value) {
@@ -593,6 +623,16 @@ const handleSend = async () => {
   userInput.value = ''
   await scrollToBottom()
   await genCode(prompt)
+}
+
+// 回车发送、Shift + 回车换行（与首页输入框保持一致）
+// 输入法组合期间的回车用于确认候选词，此时不发送
+const handlePressEnter = (event: KeyboardEvent) => {
+  if (event.shiftKey || event.isComposing) {
+    return
+  }
+  event.preventDefault()
+  handleSend()
 }
 
 // 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
@@ -630,6 +670,40 @@ const handleDeploy = async () => {
     }
   } finally {
     deploying.value = false
+  }
+}
+
+// 下载应用代码：后端直接向响应流写 zip 包，并通过响应头下发文件名
+const handleDownload = async () => {
+  if (!appId.value) {
+    return
+  }
+  downloading.value = true
+  try {
+    // src/api 下的下载方法不支持 responseType 参数，这里通过 options 覆盖为 blob 以二进制接收；
+    // timeout 置 0：打包大应用可能超过 60s 的默认超时
+    const res = await downloadApp({ appId: appId.value }, { responseType: 'blob', timeout: 0 })
+    // 后端异常时状态码仍是 200，响应体却是 JSON 格式的 BaseResponse，需要先识别出来
+    const errorMessage = await parseResponseErrorMessage(res.data)
+    if (errorMessage) {
+      message.error('下载失败，' + errorMessage).then(() => {})
+      return
+    }
+    // 文件名以 Content-Disposition 为准（后端为 {appId}.zip），解析失败时用应用名兜底
+    const fileName = parseDownloadFileName(
+      res.headers?.['content-disposition'],
+      `${app.value.appName || appId.value}.zip`,
+    )
+    saveBlobAsFile(res.data, fileName)
+    message.success('代码下载成功').then(() => {})
+  } catch (error) {
+    // 非 2xx 时 axios 抛出异常，错误响应体同样是 Blob，需要解析后展示
+    const reason = await parseResponseErrorMessage(
+      (error as { response?: { data?: unknown } })?.response?.data,
+    )
+    message.error('下载失败，' + (reason || (error as Error)?.message || '请稍后重试')).then(() => {})
+  } finally {
+    downloading.value = false
   }
 }
 
@@ -883,6 +957,35 @@ onBeforeUnmount(() => {
 
 .detail-button:hover,
 .detail-button:focus {
+  color: #1677ff !important;
+  border-color: #bfdbfe !important;
+  background: #eef5ff !important;
+  box-shadow: 0 6px 14px rgb(22 119 255 / 14%);
+}
+
+/* 下载代码：纯图标按钮，与「应用详情」按钮同一套描边风格 */
+.download-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: #48658b;
+  font-size: 16px;
+  border: 1px solid #e6eefb;
+  border-radius: 10px;
+  background: #f7f9fc;
+  box-shadow: none;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.download-button:hover,
+.download-button:focus {
   color: #1677ff !important;
   border-color: #bfdbfe !important;
   background: #eef5ff !important;
@@ -1365,7 +1468,48 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 12px;
   margin-top: 8px;
+}
+
+/* ---- 输入框工具条：字数 / 快捷键（样式与首页输入框一致） ---- */
+.toolbar-counter {
+  color: #a3b1c4;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.toolbar-counter.is-limit {
+  color: #e85d75;
+  font-weight: 600;
+}
+
+.toolbar-hint {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: #a3b1c4;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hint-key {
+  padding: 1px 6px;
+  color: #7a8ba6;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  background: #f7f9fc;
+  border: 1px solid #eaf0f9;
+  border-radius: 5px;
+}
+
+.hint-divider {
+  width: 1px;
+  height: 12px;
+  margin: 0 5px;
+  background: #e4ebf5;
 }
 
 .send-button {
@@ -1528,6 +1672,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
+  /* 窄屏下隐藏快捷键提示，把空间留给字数与发送按钮（与首页输入框一致） */
+  .toolbar-hint {
+    display: none;
+  }
+
   .chat-header {
     padding: 0 12px;
   }

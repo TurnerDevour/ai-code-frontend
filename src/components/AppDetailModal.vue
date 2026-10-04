@@ -13,11 +13,13 @@
         <span v-else>{{ coverText }}</span>
       </div>
       <div class="detail-app-meta">
-        <div class="detail-app-name" :title="app.appName">{{ app.appName || '未命名应用' }}</div>
+        <div class="detail-app-head">
+          <div class="detail-app-name" :title="app.appName">{{ app.appName || '未命名应用' }}</div>
+          <AppPriorityTag class="detail-app-priority" :priority="app.priority" compact />
+        </div>
         <div class="detail-app-type">
           <CodeGenTypeTag :code-gen-type="app.codeGenType" />
           <AiModelTypeTag :ai-model-type="app.aiModelType" />
-          <AppPriorityTag :priority="app.priority" compact />
         </div>
       </div>
     </div>
@@ -152,11 +154,21 @@ const handleOpenChange = (value: boolean) => {
 }
 
 :global(.app-modal .detail-app-meta) {
+  flex: 1;
   min-width: 0;
 }
 
+/* 应用名称与优先级标签同一行：名称过长时省略，标签始终完整可见 */
+:global(.app-modal .detail-app-head) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 :global(.app-modal .detail-app-name) {
-  margin-bottom: 6px;
+  min-width: 0;
   overflow: hidden;
   color: #172b4d;
   font-weight: 700;
@@ -166,10 +178,22 @@ const handleOpenChange = (value: boolean) => {
   white-space: nowrap;
 }
 
+:global(.app-modal .detail-app-priority) {
+  flex: 0 0 auto;
+}
+
 :global(.app-modal .detail-app-type) {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+
+/* 标签保持自身尺寸：宽度不足时换行到下一行。
+   否则最后一个标签（compact 模式下 min-width: 0）会被单独压缩，
+   配合 overflow: hidden 直接把文字裁掉，出现「默认应用」显示不全 */
+:global(.app-modal .detail-app-type > *) {
+  flex: 0 0 auto;
 }
 
 :global(.app-modal .detail-row) {

@@ -173,6 +173,10 @@ declare namespace API {
     id: string
   }
 
+  type downloadAppParams = {
+    appId: string
+  }
+
   type getAppVOByIdByAdminParams = {
     id: string
   }
