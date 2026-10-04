@@ -90,7 +90,8 @@
                 <span></span>
               </div>
               <div v-else-if="item.role === 'ai' && item.status === 'error'" class="error-tip">
-                生成失败，请重试
+                <ExclamationCircleOutlined />
+                <span>{{ item.errorMessage || '生成失败，请重试' }}</span>
               </div>
             </div>
           </div>
@@ -221,6 +222,7 @@ import {
   DesktopOutlined,
   DownOutlined,
   EditOutlined,
+  ExclamationCircleOutlined,
   ExportOutlined,
   EyeOutlined,
   HistoryOutlined,
@@ -258,6 +260,8 @@ interface ChatMessage {
   /** AI 回复的 Markdown 渲染结果（流式输出时节流更新） */
   html: string
   status: 'done' | 'loading' | 'error'
+  /** 出错时后端下发的错误原因（error 帧的 data），展示给用户 */
+  errorMessage?: string
 }
 
 const route = useRoute()
@@ -485,6 +489,18 @@ const genCode = async (prompt: string) => {
     const fence = suffix && suffix !== file.relativePath ? suffix : 'text'
     appendChunk(`\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`)
   }
+  // 本次生成是否已失败：失败后不再刷新预览，避免展示半成品
+  let hasError = false
+  // 标记该条消息生成失败：error 帧已带回原因，展示时优先用后端下发的文案
+  const markGenerationFailed = (reason: string) => {
+    updateAiMessage((target) => {
+      target.status = 'error'
+      target.errorMessage = reason
+      // 立即渲染一次，保证报错前已收到的内容排版完整
+      flushMarkdown(target)
+    })
+    hasError = true
+  }
   generating.value = true
   previewUrl.value = ''
   await scrollToBottom()
@@ -493,7 +509,7 @@ const genCode = async (prompt: string) => {
   // 保证「流式全部返回后展示网站」只会触发一次（done 事件与连接关闭二者取先到者）
   let previewShown = false
   const showGeneratedWebsite = () => {
-    if (previewShown) {
+    if (previewShown || hasError) {
       return
     }
     previewShown = true
@@ -521,6 +537,9 @@ const genCode = async (prompt: string) => {
           appendToolExecutedMessage(streamMessage.arguments)
         } else if (streamMessage.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
           appendChunk('\n\n> [🔧 选择工具] 写入文件\n\n')
+        } else if (streamMessage.type === STREAM_MESSAGE_TYPE.ERROR) {
+          // 错误帧与 ai_response 同层，data 即错误原因；标记失败后不再追加后续内容
+          markGenerationFailed(streamMessage.data || '生成失败，请重试')
         } else {
           appendChunk(streamMessage.data)
         }
@@ -536,10 +555,7 @@ const genCode = async (prompt: string) => {
       appendChunk(chunk)
     },
     onError: (error) => {
-      updateAiMessage((target) => {
-        target.status = 'error'
-        flushMarkdown(target)
-      })
+      markGenerationFailed((error as Error)?.message || '生成失败，请重试')
       message.error('生成失败：' + (error as Error)?.message).then(() => {})
     },
     onClose: () => {
@@ -1254,10 +1270,30 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 生成失败提示：后端 error 帧的错误原因，软红底 + 图标，长文案可换行 */
 .error-tip {
-  margin-top: 6px;
-  color: #e85d75;
-  font-size: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 8px;
+  padding: 8px 12px;
+  color: #cf3b56;
+  font-size: 12.5px;
+  line-height: 1.7;
+  border: 1px solid #ffd8df;
+  border-radius: 10px;
+  background: #fff6f8;
+}
+
+.error-tip :deep(.anticon) {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: #f0667c;
+}
+
+.error-tip > span {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .input-wrapper {
