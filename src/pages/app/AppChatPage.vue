@@ -104,6 +104,31 @@
 
         <!-- 用户消息输入框 -->
         <div class="input-wrapper">
+          <!-- 可视化编辑：展示预览中选中的元素信息，可点击「移除」主动清除 -->
+          <a-alert
+            v-if="selectedElement"
+            class="selected-element-alert"
+            type="info"
+            show-icon
+            closable
+            close-text="移除"
+            @close="clearSelectedElement"
+          >
+            <template #message>
+              <span class="element-alert-label">已选中页面元素</span>
+              <span class="element-alert-tag">{{ selectedElementLabel }}</span>
+            </template>
+            <template #description>
+              <div class="element-alert-line">
+                <span class="element-alert-key">选择器</span>
+                <code class="element-alert-code">{{ selectedElement.selector || '-' }}</code>
+              </div>
+              <div v-if="selectedElement.text" class="element-alert-line">
+                <span class="element-alert-key">文本</span>
+                <span class="element-alert-text">{{ selectedElement.text }}</span>
+              </div>
+            </template>
+          </a-alert>
           <a-tooltip :title="canChat ? '' : '无法在别人的作品下对话哦~'">
             <div class="input-card" :class="{ 'is-readonly': !canChat }">
               <a-textarea
@@ -132,6 +157,18 @@
                   <kbd class="hint-key">Enter</kbd>
                   换行
                 </span>
+                <!-- 可视化编辑：开关编辑模式，选中元素后发送消息即可让 AI 按元素修改 -->
+                <a-tooltip :title="visualEditTip">
+                  <button
+                    type="button"
+                    class="visual-edit-button"
+                    :class="{ 'is-active': editMode }"
+                    :disabled="!canChat || generating"
+                    @click="toggleEditMode"
+                  >
+                    <HighlightOutlined />
+                  </button>
+                </a-tooltip>
                 <button
                   type="button"
                   class="send-button"
@@ -148,11 +185,19 @@
       </section>
 
       <!-- 右侧网页展示区域 -->
-      <section class="preview-panel">
+      <section class="preview-panel" :class="{ 'is-editing': editMode }">
         <div class="preview-header">
           <div class="preview-title">
             <EyeOutlined />
             <span>生成后的网页展示</span>
+            <span v-if="editMode" class="preview-editing-badge">
+              <HighlightOutlined />
+              编辑中：点击元素即可选中
+            </span>
+            <span v-else-if="editError" class="preview-error-badge">
+              <ExclamationCircleOutlined />
+              {{ editError }}
+            </span>
           </div>
           <div class="preview-actions">
             <a-tooltip title="刷新预览">
@@ -181,6 +226,7 @@
           <iframe
             v-if="previewUrl"
             :key="previewKey"
+            ref="previewIframeRef"
             class="preview-iframe"
             :src="previewUrl"
             title="应用预览"
@@ -244,6 +290,7 @@ import {
   ExclamationCircleOutlined,
   ExportOutlined,
   EyeOutlined,
+  HighlightOutlined,
   HistoryOutlined,
   LoadingOutlined,
   ProfileOutlined,
@@ -269,6 +316,13 @@ import {
   parseToolArguments,
 } from '@/utils/streamMessage'
 import { parseTime } from '@/utils/time'
+import {
+  buildVisualEditPrompt,
+  createVisualEditor,
+  describeVisualEditorFailure,
+  formatVisualEditorElement,
+} from '@/utils/visualEditor'
+import type { VisualEditorElement } from '@/utils/visualEditor'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { ACCESS } from '@/constant/access'
 import {
@@ -318,6 +372,14 @@ const deploying = ref(false)
 const downloading = ref(false)
 const previewUrl = ref('')
 const previewKey = ref(0)
+/** 预览 iframe：可视化编辑脚本注入的目标 */
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
+/** 是否处于可视化编辑模式 */
+const editMode = ref(false)
+/** 预览中选中的页面元素：发送消息或手动移除后清空 */
+const selectedElement = ref<VisualEditorElement | null>(null)
+/** 可视化编辑开不起来时的原因（展示在预览面板标题旁，避免静默失败） */
+const editError = ref('')
 const messageListRef = ref<HTMLElement | null>(null)
 const renameModalOpen = ref(false)
 const renameValue = ref('')
@@ -341,6 +403,77 @@ const canChat = computed(() => {
 
 let messageIdSeed = 0
 let abortController: AbortController | null = null
+
+/**
+ * 可视化编辑器：脚本注入、编辑状态同步、选中元素回传都封装在 utils/visualEditor.ts 中，
+ * 页面只关心「是否编辑中」与「选中了哪个元素」
+ */
+const visualEditor = createVisualEditor({
+  onSelect: (element) => {
+    selectedElement.value = element
+  },
+  onUnavailable: (reason) => {
+    // 开不起来时不能静默：回滚编辑模式，并把具体原因同时用提示条与 toast 告诉用户
+    editMode.value = false
+    selectedElement.value = null
+    editError.value = describeVisualEditorFailure(reason)
+    message.warning(editError.value).then(() => {})
+  },
+  onDocumentReady: () => {
+    // 预览刷新后旧元素已不存在，清掉避免展示过期的元素信息
+    selectedElement.value = null
+  },
+})
+
+// 选中元素的简短标识（如 button.btn-primary），展示在提示条标题行
+const selectedElementLabel = computed(() =>
+  selectedElement.value ? formatVisualEditorElement(selectedElement.value) : '',
+)
+
+// 可视化编辑按钮的悬浮提示
+const visualEditTip = computed(() => {
+  if (!canChat.value) {
+    return '无法在别人的作品下对话哦~'
+  }
+  if (editMode.value) {
+    return '退出可视化编辑'
+  }
+  return previewUrl.value ? '可视化编辑：点选页面元素进行修改' : '生成网站后可进行可视化编辑'
+})
+
+// 切换可视化编辑模式
+const toggleEditMode = () => {
+  if (!previewUrl.value) {
+    message.warning('请先与 AI 对话生成网站，再进行可视化编辑').then(() => {})
+    return
+  }
+  const next = !editMode.value
+  editMode.value = next
+  // 每次操作先清掉上一次的失败提示（失败时 onUnavailable 会重新写入）
+  editError.value = ''
+  // 退出编辑模式时选中元素一并失效
+  if (!next) {
+    selectedElement.value = null
+  }
+  visualEditor.setEnabled(next)
+}
+
+// 移除选中的元素：保留编辑模式，方便继续点选其它元素
+const clearSelectedElement = () => {
+  selectedElement.value = null
+  visualEditor.clearSelection()
+}
+
+// 退出可视化编辑并复位预览页中的高亮（发送消息、切换应用时调用）
+const exitEditMode = () => {
+  editMode.value = false
+  selectedElement.value = null
+  editError.value = ''
+  visualEditor.setEnabled(false)
+}
+
+// 预览 iframe 由 v-if + key 渲染，重建后需要重新绑定：绑定内部会自动注入脚本并同步编辑模式
+watch(previewIframeRef, (iframe) => visualEditor.attach(iframe), { flush: 'post' })
 
 const createMessageIdGenerator = () => {
   messageIdSeed += 1
@@ -613,16 +746,21 @@ const handleSend = async () => {
   if (!prompt || generating.value) {
     return
   }
+  // 可视化编辑选中了元素时，把元素信息拼进提示词，AI 才知道要改的是页面上的哪一块
+  const element = selectedElement.value
+  const finalPrompt = element ? buildVisualEditPrompt(element, prompt) : prompt
   sessionMessages.value.push({
     id: createMessageIdGenerator(),
     role: 'user',
-    content: prompt,
+    content: finalPrompt,
     html: '',
     status: 'done',
   })
   userInput.value = ''
+  // 发送后清除选中元素并退出编辑模式（预览页中的高亮由 exitEditMode 一并复位）
+  exitEditMode()
   await scrollToBottom()
-  await genCode(prompt)
+  await genCode(finalPrompt)
 }
 
 // 回车发送、Shift + 回车换行（与首页输入框保持一致）
@@ -637,6 +775,8 @@ const handlePressEnter = (event: KeyboardEvent) => {
 
 // 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
 const refreshPreview = () => {
+  // 重新加载往往能解决「脚本没注入」这类问题，先清掉上一次的失败提示
+  editError.value = ''
   previewUrl.value = buildPreviewUrl()
   previewKey.value += 1
 }
@@ -816,6 +956,8 @@ watch(
     historyLoaded.value = false
     userInput.value = ''
     previewUrl.value = ''
+    // 切换应用时退出可视化编辑，避免上一个应用的选中元素被带到新应用
+    exitEditMode()
     await initPage()
   },
 )
@@ -823,6 +965,8 @@ watch(
 onBeforeUnmount(() => {
   abortController?.abort()
   clearMarkdownTimers()
+  // 释放 iframe 消息监听，并通知预览页复位高亮
+  visualEditor.destroy()
 })
 </script>
 
@@ -1399,6 +1543,88 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
+/* ---- 可视化编辑：选中元素提示条（输入框上方） ----
+   选择器都带上 .input-wrapper 前缀：antd 的组件样式带哈希类名（同为 0,2,0 权重），
+   且由 cssinjs 在运行时注入，仅靠类名无法稳定覆盖 */
+.input-wrapper .selected-element-alert {
+  padding: 9px 14px;
+  margin-bottom: 10px;
+  border: 1px solid #cfe0f8;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #f2f7ff, #f7f5ff);
+}
+
+.input-wrapper .selected-element-alert :deep(.ant-alert-icon) {
+  margin-top: 2px;
+  color: #1677ff;
+  font-size: 15px;
+}
+
+.input-wrapper .selected-element-alert :deep(.ant-alert-message) {
+  color: #172b4d;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.input-wrapper .selected-element-alert :deep(.ant-alert-description) {
+  color: #5c6d86;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.input-wrapper .selected-element-alert :deep(.ant-alert-close-text) {
+  color: #7c9cc9;
+  font-size: 12px;
+}
+
+.input-wrapper .selected-element-alert :deep(.ant-alert-close-text:hover) {
+  color: #1677ff;
+}
+
+.element-alert-label {
+  margin-right: 8px;
+}
+
+/* 选中的元素标识：等宽字体 + 白底描边胶囊，和代码块的视觉语言一致 */
+.element-alert-tag {
+  padding: 1px 8px;
+  color: #1677ff;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid #d5e5ff;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.element-alert-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.element-alert-key {
+  flex: 0 0 auto;
+  color: #8fa4c1;
+  font-size: 12px;
+}
+
+.element-alert-code {
+  padding: 0;
+  color: #48658b;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  background: transparent;
+  border: 0;
+}
+
+.element-alert-text {
+  min-width: 0;
+  color: #5c6d86;
+  word-break: break-word;
+}
+
 .input-wrapper {
   padding: 8px 12px 12px;
 }
@@ -1512,6 +1738,46 @@ onBeforeUnmount(() => {
   background: #e4ebf5;
 }
 
+/* ---- 可视化编辑按钮：位于发送按钮左侧，开启后转为品牌渐变实心 ---- */
+.visual-edit-button {
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  color: #5c6d86;
+  font-size: 16px;
+  border: 1px solid #e6eefb;
+  border-radius: 50%;
+  place-items: center;
+  cursor: pointer;
+  background: #f7f9fc;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.visual-edit-button:hover:not(:disabled),
+.visual-edit-button:focus-visible:not(:disabled) {
+  color: #1677ff;
+  border-color: #bfdbfe;
+  background: #eef5ff;
+  box-shadow: 0 6px 14px rgb(22 119 255 / 14%);
+}
+
+.visual-edit-button.is-active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #1677ff, #6d5dfc);
+  box-shadow: 0 8px 16px rgb(54 103 210 / 26%);
+}
+
+.visual-edit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .send-button {
   display: grid;
   width: 36px;
@@ -1542,6 +1808,15 @@ onBeforeUnmount(() => {
   border: 1px solid #edf2fa;
   border-radius: 14px;
   box-shadow: 0 12px 36px rgb(31 73 125 / 7%);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* 编辑模式：预览面板整体描边高亮，提示当前处于点选状态 */
+.preview-panel.is-editing {
+  border-color: #bfdbfe;
+  box-shadow: 0 12px 36px rgb(22 119 255 / 14%);
 }
 
 .preview-header {
@@ -1564,6 +1839,44 @@ onBeforeUnmount(() => {
 
 .preview-title :deep(.anticon) {
   color: #1677ff;
+}
+
+/* 编辑模式徽标：标题右侧的蓝色胶囊提示 */
+.preview-editing-badge {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 10px;
+  color: #1677ff;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid #d5e5ff;
+  border-radius: 999px;
+  background: linear-gradient(105deg, #eef5ff, #f2f0ff);
+}
+
+.preview-editing-badge :deep(.anticon) {
+  color: inherit;
+  font-size: 12px;
+}
+
+/* 开启编辑模式失败时的原因提示：常驻在标题旁，不再只靠一闪而过的 toast */
+.preview-error-badge {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 10px;
+  color: #cf3b56;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid #ffd8df;
+  border-radius: 999px;
+  background: #fff6f8;
+}
+
+.preview-error-badge :deep(.anticon) {
+  color: inherit;
+  font-size: 12px;
 }
 
 .preview-actions {

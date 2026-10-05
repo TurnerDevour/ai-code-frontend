@@ -16,9 +16,17 @@ export default defineConfig({
   },
   server: {
     watch: {
-      // 编辑器的原子写入会在源码目录里创建 .xxx.tmpdir 临时目录，
-      // chokidar 监听这些转瞬即逝的路径会抛 EBUSY 并直接打挂 dev server
-      ignored: ['**/.*', '**/.*/**'],
+      // 编辑器保存文件时会先在源码目录创建 .xxx.tmpdir 临时目录，
+      // chokidar 监听这些转瞬即逝的路径会抛 EBUSY 并直接打挂 dev server，
+      // 因此忽略这类临时目录（不忽略 .env* 等点文件，环境变量改动仍能触发热重启）
+      ignored: ['**/.*.tmpdir', '**/.*.tmpdir/**'],
+    },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8123',
+        changeOrigin: true,
+        secure: false, // 如果是https接口，需要配置这个参数
+      },
     },
   },
 })
