@@ -9,3 +9,11 @@ export async function healthCheck(options?: { [key: string]: any }) {
     ...(options || {}),
   })
 }
+
+/** 此处后端没有提供注释 GET /health/deploy-queue */
+export async function deployQueueStatus(options?: { [key: string]: any }) {
+  return request<API.BaseResponseMapStringObject>('/health/deploy-queue', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}

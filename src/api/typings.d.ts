@@ -82,6 +82,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseDeployStatusVO = {
+    code?: number
+    data?: DeployStatusVO
+    message?: string
+  }
+
   type BaseResponseLoginUserVO = {
     code?: number
     data?: LoginUserVO
@@ -91,6 +97,12 @@ declare namespace API {
   type BaseResponseLong = {
     code?: number
     data?: number
+    message?: string
+  }
+
+  type BaseResponseMapStringObject = {
+    code?: number
+    data?: Record<string, any>
     message?: string
   }
 
@@ -173,6 +185,19 @@ declare namespace API {
     id: string
   }
 
+  type DeployStatusVO = {
+    appId?: string
+    status?: string
+    accepted?: boolean
+    message?: string
+    deployUrl?: string
+    errorMessage?: string
+    deployedTime?: string
+    queuePosition?: number
+    queueSize?: number
+    workerCount?: number
+  }
+
   type downloadAppParams = {
     appId: string
   }
@@ -183,6 +208,10 @@ declare namespace API {
 
   type getAppVOByIdParams = {
     id: string
+  }
+
+  type getDeployStatusParams = {
+    appId: string
   }
 
   type getUserByIdParams = {

@@ -36,6 +36,21 @@
       <span class="detail-label">创建时间</span>
       <span class="detail-value">{{ app.createTime || '-' }}</span>
     </div>
+    <!-- 部署状态以 /app/deploy/status 的 status 字段为准，不再用 deployKey 猜测是否已部署 -->
+    <div class="detail-row">
+      <span class="detail-label">部署状态</span>
+      <a-tooltip :title="deployTip">
+        <DeployStatusTag
+          :status="deployStatus?.status"
+          :queue-position="deployStatus?.queuePosition"
+          :deploy-url="deployStatus?.deployUrl"
+        />
+      </a-tooltip>
+    </div>
+    <div v-if="deployedTime" class="detail-row">
+      <span class="detail-label">部署时间</span>
+      <span class="detail-value">{{ deployedTime }}</span>
+    </div>
 
     <!-- 操作栏：仅应用本人或管理员可见 -->
     <template v-if="canManage" #footer>
@@ -66,6 +81,8 @@ import AppModal from '@/components/AppModal.vue'
 import AppPriorityTag from '@/components/AppPriorityTag.vue'
 import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
 import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
+import DeployStatusTag from '@/components/DeployStatusTag.vue'
+import { describeDeployStatus } from '@/utils/deploy'
 
 const props = withDefaults(
   defineProps<{
@@ -73,6 +90,8 @@ const props = withDefaults(
     open?: boolean
     /** 应用信息 */
     app: API.AppVO
+    /** 部署状态（来自 GET /app/deploy/status），未传时展示「未部署」 */
+    deployStatus?: API.DeployStatusVO | null
     /** 是否展示「修改 / 删除」操作（本人或管理员） */
     canManage?: boolean
     /** 删除请求进行中 */
@@ -80,6 +99,7 @@ const props = withDefaults(
   }>(),
   {
     open: false,
+    deployStatus: null,
     canManage: false,
     deleting: false,
   },
@@ -92,6 +112,12 @@ const emit = defineEmits<{
 }>()
 
 const coverText = computed(() => (props.app.appName || '未')[0])
+
+/** 部署状态的悬浮说明：排队进度、失败原因都在这里展示 */
+const deployTip = computed(() => describeDeployStatus(props.deployStatus))
+
+/** 部署时间：仅部署成功后由后端下发 */
+const deployedTime = computed(() => props.deployStatus?.deployedTime ?? '')
 
 const handleOpenChange = (value: boolean) => {
   emit('update:open', value)

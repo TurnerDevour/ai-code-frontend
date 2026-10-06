@@ -45,9 +45,23 @@
             <template #icon><DownloadOutlined /></template>
           </a-button>
         </a-tooltip>
-        <a-button v-if="canChat" class="deploy-button" :loading="deploying" @click="handleDeploy">
+        <!-- 部署状态：以 /app/deploy/status 的 status 字段为准（老数据后端已按「有 deployKey = 已部署」返回） -->
+        <a-tooltip v-if="canChat" :title="deployStatusTip">
+          <DeployStatusTag
+            :status="deployStatusValue"
+            :queue-position="deployStatus?.queuePosition"
+            :deploy-url="deployUrl"
+          />
+        </a-tooltip>
+        <a-button
+          v-if="canChat"
+          class="deploy-button"
+          :loading="deploying"
+          :disabled="deployDisabled"
+          @click="handleDeploy"
+        >
           <template #icon><CloudUploadOutlined /></template>
-          部署
+          {{ deployButtonText }}
         </a-button>
       </div>
     </header>
@@ -249,6 +263,7 @@
     <AppDetailModal
       v-model:open="detailModalOpen"
       :app="app"
+      :deploy-status="deployStatus"
       :can-manage="canChat"
       :deleting="deleting"
       @edit="handleDetailEdit"
@@ -278,7 +293,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { Modal, message } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
   ArrowUpOutlined,
@@ -298,18 +313,24 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { deleteApp, deployApp, downloadApp, getAppVoById, updateApp } from '@/api/appController'
+import { deleteApp, downloadApp, getAppVoById, updateApp } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
+import DeployStatusTag from '@/components/DeployStatusTag.vue'
+import { useAppDeploy } from '@/composables/useAppDeploy'
 import { getStaticUrl } from '@/utils/apiUrl'
+import { resolveDeployErrorMessage } from '@/utils/deploy'
 import {
   parseDownloadFileName,
   parseResponseErrorMessage,
   saveBlobAsFile,
 } from '@/utils/fileDownload'
 import { renderMarkdown } from '@/utils/markdown'
-import { streamSse } from '@/utils/sse'
+import {
+  useGenerationStore,
+  type GenerationSession,
+} from '@/stores/useGenerationStore'
 import {
   STREAM_MESSAGE_TYPE,
   parseStreamMessage,
@@ -331,6 +352,7 @@ import {
   CHAT_MESSAGE_TYPE,
   MIN_CHAT_HISTORY_FOR_PREVIEW,
 } from '@/constant/chat'
+import { DEPLOY_STATUS } from '@/constant/deploy'
 
 interface ChatMessage {
   id: string
@@ -346,6 +368,16 @@ interface ChatMessage {
 const route = useRoute()
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
+/**
+ * 生成会话 store：生成请求挂在这里，页面卸载不会中断它
+ * （方案 A：用户点返回后生成继续跑完，回到页面从快照恢复内容）
+ */
+const {
+  isGenerating,
+  getSession: getGenerationSession,
+  startGeneration,
+  abortGeneration,
+} = useGenerationStore()
 
 const appId = computed(() => String(route.params.id ?? ''))
 const app = ref<API.AppVO>({})
@@ -367,7 +399,13 @@ const hasMoreHistory = ref(false)
 const historyLoaded = ref(false)
 const userInput = ref('')
 const generating = ref(false)
-const deploying = ref(false)
+/**
+ * 当前页面正在关注的生成会话订阅清理函数
+ * <p>
+ * 生成请求本身挂全局 store，页面卸载只解除这个订阅（不中断生成），
+ * 用户回到页面时会重新订阅并从 store 快照恢复内容。
+ */
+let activeGenerationWatch: (() => void) | null = null
 /** 应用代码打包下载中 */
 const downloading = ref(false)
 const previewUrl = ref('')
@@ -387,6 +425,41 @@ const renaming = ref(false)
 const detailModalOpen = ref(false)
 const deleting = ref(false)
 
+/**
+ * 部署状态与轮询
+ * 后端已改为异步部署（提交毫秒级返回，构建在部署队列里跑），提交 + 轮询 + 超时保护
+ * 都收敛在 useAppDeploy 中，页面只负责展示状态与触发交互
+ */
+const {
+  deployStatus,
+  deployStatusValue,
+  deploying,
+  inProgress: deployInProgress,
+  deployUrl,
+  statusTip: deployStatusTip,
+  deploy: startDeploy,
+  syncStatus: syncDeployStatus,
+  stop: stopDeployPolling,
+} = useAppDeploy(appId)
+
+// 部署按钮：进行中（排队中/部署中）与已部署时置灰
+// 后端对 ready 状态会拒绝重复提交（返回 accepted=false + 现有地址），因此不再让用户重复点
+const deployDisabled = computed(
+  () => deployInProgress.value || deployStatusValue.value === DEPLOY_STATUS.READY,
+)
+
+// 部署按钮文案：已部署、上次失败（重试）、未部署
+const deployButtonText = computed(() => {
+  switch (deployStatusValue.value) {
+    case DEPLOY_STATUS.READY:
+      return '已部署'
+    case DEPLOY_STATUS.FAILED:
+      return '重新部署'
+    default:
+      return '部署'
+  }
+})
+
 // 是否为当前用户自己的应用（管理员也视为可管理）
 const isOwner = computed(() => {
   const loginUserId = loginUserStore.loginUser.id
@@ -402,7 +475,6 @@ const canChat = computed(() => {
 })
 
 let messageIdSeed = 0
-let abortController: AbortController | null = null
 
 /**
  * 可视化编辑器：脚本注入、编辑状态同步、选中元素回传都封装在 utils/visualEditor.ts 中，
@@ -612,7 +684,12 @@ const loadMoreHistory = async () => {
 }
 
 // 调用 SSE 接口生成代码
+// 生成请求挂在全局 store 上（useGenerationStore）：用户点返回/关闭页面时不会掐断连接，
+// 而是保持生成继续、把结果接住；回到页面时从 store 快照恢复已生成的内容。
 const genCode = async (prompt: string) => {
+  if (!appId.value || isGenerating(appId.value)) {
+    return
+  }
   const aiMessageId = createMessageIdGenerator()
   sessionMessages.value.push({
     id: aiMessageId,
@@ -628,45 +705,11 @@ const genCode = async (prompt: string) => {
       updater(target)
     }
   }
-  // 追加流式文本分片（节流渲染）
-  const appendChunk = (chunk: string) => {
-    if (!chunk) {
-      return
-    }
-    updateAiMessage((target) => {
-      target.content += chunk
-      scheduleMarkdown(target)
-    })
-    scrollToBottom()
-  }
-  // 追加工具写入结果：把写入的文件路径与内容渲染成 Markdown 代码块
-  const appendToolExecutedMessage = (args: string) => {
-    const file = parseToolArguments(args)
-    if (!file) {
-      return
-    }
-    const suffix = file.relativePath.split('.').pop() ?? ''
-    const fence = suffix && suffix !== file.relativePath ? suffix : 'text'
-    appendChunk(`\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`)
-  }
+  // 已同步进 UI 的内容长度：离开页面再回来时该值为 0，会从 store 快照整体重建
+  let syncedLength = 0
   // 本次生成是否已失败：失败后不再刷新预览，避免展示半成品
   let hasError = false
-  // 标记该条消息生成失败：error 帧已带回原因，展示时优先用后端下发的文案
-  const markGenerationFailed = (reason: string) => {
-    updateAiMessage((target) => {
-      target.status = 'error'
-      target.errorMessage = reason
-      // 立即渲染一次，保证报错前已收到的内容排版完整
-      flushMarkdown(target)
-    })
-    hasError = true
-  }
-  generating.value = true
-  previewUrl.value = ''
-  await scrollToBottom()
-
-  abortController = new AbortController()
-  // 保证「流式全部返回后展示网站」只会触发一次（done 事件与连接关闭二者取先到者）
+  // 保证「流式全部返回后展示网站」只会触发一次
   let previewShown = false
   const showGeneratedWebsite = () => {
     if (previewShown || hasError) {
@@ -675,62 +718,89 @@ const genCode = async (prompt: string) => {
     previewShown = true
     refreshPreview()
   }
-  await streamSse<string>({
-    url: '/app/chat/gen/code',
-    params: {
-      appId: appId.value,
-      prompt,
-    },
-    abortController,
-    onMessage: (event) => {
-      // 后端流结束时会发送 event:done，此时代码文件已全部保存
-      if (event.event === 'done') {
-        // 结束时立即渲染一次，保证最终排版与代码高亮是完整的
-        updateAiMessage((target) => flushMarkdown(target))
-        showGeneratedWebsite()
-        return
-      }
-      // Vue 工程模式下后端每个数据块是 JSON 消息，按类型分发；其它模式是 {d: '文本'}
-      const streamMessage = parseStreamMessage(event.data)
-      if (streamMessage) {
-        if (streamMessage.type === STREAM_MESSAGE_TYPE.TOOL_EXECUTED) {
-          appendToolExecutedMessage(streamMessage.arguments)
-        } else if (streamMessage.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
-          appendChunk('\n\n> [🔧 选择工具] 写入文件\n\n')
-        } else if (streamMessage.type === STREAM_MESSAGE_TYPE.ERROR) {
-          // 错误帧与 ai_response 同层，data 即错误原因；标记失败后不再追加后续内容
-          markGenerationFailed(streamMessage.data || '生成失败，请重试')
-        } else {
-          appendChunk(streamMessage.data)
-        }
-        return
-      }
-      const payload = event.data as unknown
-      const chunk =
-        typeof payload === 'string'
-          ? payload
-          : payload && typeof (payload as { d?: unknown }).d === 'string'
-            ? (payload as { d: string }).d
-            : ''
-      appendChunk(chunk)
-    },
-    onError: (error) => {
-      markGenerationFailed((error as Error)?.message || '生成失败，请重试')
-      message.error('生成失败：' + (error as Error)?.message).then(() => {})
-    },
-    onClose: () => {
+  // 把 store 里累积的内容同步到当前页面消息（增量追加；回放时一次性重建并立即渲染）
+  const syncContent = (forceRender = false) => {
+    const session = getGenerationSession(appId.value)
+    const content = session?.content ?? ''
+    if (content.length < syncedLength) {
+      // store 内容变短（会话被重置）：整体重建
+      syncedLength = 0
       updateAiMessage((target) => {
-        if (target.status !== 'error') {
-          target.status = 'done'
-        }
+        target.content = ''
+      })
+    }
+    if (content.length > syncedLength) {
+      const delta = content.slice(syncedLength)
+      syncedLength = content.length
+      updateAiMessage((target) => {
+        target.content += delta
+      })
+      scrollToBottom()
+    }
+    if (forceRender) {
+      updateAiMessage((target) => flushMarkdown(target))
+    } else {
+      updateAiMessage((target) => scheduleMarkdown(target))
+    }
+  }
+  // 处理 store 的终态：错误展示 / 完成标记 / 停止标记 / 预览刷新
+  const syncFinalState = (session: GenerationSession | null) => {
+    if (!session) {
+      return
+    }
+    if (session.status === 'error') {
+      if (!hasError) {
+        hasError = true
+        updateAiMessage((target) => {
+          target.status = 'error'
+          target.errorMessage = session.errorMessage || '生成失败，请重试'
+          flushMarkdown(target)
+        })
+        message.error('生成失败：' + (session.errorMessage || '请重试')).then(() => {})
+      }
+      generating.value = false
+      return
+    }
+    if (session.status === 'stopped') {
+      updateAiMessage((target) => {
+        target.status = 'done'
         flushMarkdown(target)
       })
       generating.value = false
-      abortController = null
-      // 流式接口全部返回后展示生成的网站
+      return
+    }
+    if (session.status === 'done') {
+      updateAiMessage((target) => {
+        target.status = 'done'
+        flushMarkdown(target)
+      })
+      generating.value = false
       showGeneratedWebsite()
+    }
+  }
+
+  generating.value = true
+  previewUrl.value = ''
+  await scrollToBottom()
+
+  // 订阅 store 的变化：内容增长 + 状态变化
+  const stopWatch = watch(
+    () => {
+      const session = getGenerationSession(appId.value)
+      return `${session?.content.length ?? 0}:${session?.status ?? 'none'}`
     },
-  })
+    () => {
+      const session = getGenerationSession(appId.value)
+      const finished = !!session && session.status !== 'running'
+      syncContent(finished)
+      syncFinalState(session)
+    },
+    { immediate: true },
+  )
+  // 组件卸载时只解除订阅（不中断生成），因此这里把清理函数登记下来
+  activeGenerationWatch = stopWatch
+
+  startGeneration(appId.value, prompt)
 }
 
 // 是否已达到输入上限（达到后计数器转为警示色，与首页输入框一致）
@@ -787,31 +857,36 @@ const openPreview = () => {
   }
 }
 
-// 部署应用
+/**
+ * 部署应用：提交异步部署（毫秒级返回），再轮询到 ready / failed
+ * 部署会真的执行依赖安装与打包，因此点击前先做一次二次确认
+ */
 const handleDeploy = async () => {
-  if (!appId.value) {
+  if (!appId.value || deploying.value) {
     return
   }
-  deploying.value = true
-  try {
-    const res = await deployApp({ appId: appId.value })
-    if (res.data.code === 0 && res.data.data) {
-      const url = res.data.data
+  Modal.confirm({
+    title: '确认部署该应用？',
+    content: '部署会执行依赖安装与打包，预计需要几十秒。期间可以离开页面，稍后回来查看部署状态。',
+    okText: '开始部署',
+    cancelText: '取消',
+    onOk: async () => {
       try {
-        await navigator.clipboard.writeText(url)
-        message.success('部署成功，访问地址已复制到剪贴板').then(() => {})
-      } catch {
-        message.success('部署成功：' + url, 6).then(() => {})
+        await startDeploy()
+      } catch (error) {
+        // 队列已满（code=50000）等业务错误：优先展示后端下发的 message
+        message.error(resolveDeployErrorMessage(error)).then(() => {})
       }
-      await fetchApp()
-      window.open(url, '_blank')
-    } else {
-      message.error('部署失败，' + res.data.message).then(() => {})
-    }
-  } finally {
-    deploying.value = false
-  }
+    },
+  })
 }
+
+// 部署完成后刷新应用信息：deployKey / deployedTime 由后端在构建成功时写入
+watch(deployStatusValue, (value) => {
+  if (value === DEPLOY_STATUS.READY) {
+    void fetchApp()
+  }
+})
 
 // 下载应用代码：后端直接向响应流写 zip 包，并通过响应头下发文件名
 const handleDownload = async () => {
@@ -914,9 +989,51 @@ const handleDetailDelete = async () => {
 }
 
 // 进入对话页的初始化：拉取应用详情 -> 加载历史消息 -> 按需自动生成 -> 展示网站
+/**
+ * 从全局生成会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回后的场景）
+ * <p>
+ * 生成请求挂在 store（并持久化到 sessionStorage），所以刷新后内容还在；
+ * 但此时历史接口里可能还没有这条 AI 消息，需要主动把它渲染出来。
+ *
+ * @returns 是否恢复出了内容
+ */
+const recoverSessionMessage = () => {
+  const targetAppId = appId.value
+  if (!targetAppId) {
+    return false
+  }
+  const session = getGenerationSession(targetAppId)
+  if (!session) {
+    return false
+  }
+  const existing = sessionMessages.value.find((item) => item.role === 'ai')
+  if (existing) {
+    return true
+  }
+  sessionMessages.value.push({
+    id: createMessageIdGenerator(),
+    role: 'ai',
+    content: session.content,
+    html: renderMarkdown(session.content),
+    status: session.status === 'error' ? 'error' : 'done',
+    errorMessage: session.errorMessage || undefined,
+  })
+  generating.value = session.status === 'running'
+  // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
+  if (session.status !== 'running') {
+    refreshPreview()
+  }
+  return true
+}
+
 const initPage = async () => {
   await fetchApp()
+  // 刷新页面 / 重新进入详情后恢复部署进度：仍在排队或构建中会自动继续轮询
+  void syncDeployStatus()
   await loadHistory()
+  // 整页刷新（含浏览器返回按钮触发的前进/后退）后，历史里可能还没有这一轮 AI 消息
+  // （服务端兜底关闭、或消息尚未落库），此时从全局会话恢复已生成的内容
+  const recovered = recoverSessionMessage()
   await scrollToBottom()
   // 首页创建应用后会带上 prompt 参数，这里只处理一次并清理掉，避免刷新后重复触发
   const prompt = route.query.prompt
@@ -924,6 +1041,10 @@ const initPage = async () => {
     (typeof prompt === 'string' && prompt.trim() ? prompt : app.value.initPrompt) ?? ''
   if (typeof prompt === 'string' && prompt.trim()) {
     await router.replace({ path: route.path })
+  }
+  // 会话恢复出了内容说明这一轮已经生成过，不再用初始提示词重复触发
+  if (recovered) {
+    return
   }
   // 只有自己的应用、且确已加载过对话历史并确认没有历史时，才把初始提示词作为第一条消息触发对话
   if (isOwner.value && historyLoaded.value && historyTotal.value === 0 && initPrompt.trim()) {
@@ -947,7 +1068,16 @@ watch(
     if (!value || String(value) === String(oldValue)) {
       return
     }
+    const previousAppId = String(oldValue ?? '')
+    // 上一个应用的生成必须真正中断：它已经不在当前页面上下文里了
+    if (previousAppId) {
+      abortGeneration(previousAppId)
+    }
+    activeGenerationWatch?.()
+    activeGenerationWatch = null
     clearMarkdownTimers()
+    // 上一个应用的部署轮询必须停掉，避免状态串到新应用
+    stopDeployPolling()
     historyMessages.value = []
     sessionMessages.value = []
     historyTotal.value = 0
@@ -963,8 +1093,14 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  abortController?.abort()
+  // 注意：这里【不】中断生成请求。
+  // 用户点返回/关闭页面时，生成会继续在 store 里跑完（服务端同一轮也会继续），
+  // 回到页面时重新订阅即可拿到完整内容；只有切换应用才会真正中断（见上面的路由 watch）。
+  activeGenerationWatch?.()
+  activeGenerationWatch = null
   clearMarkdownTimers()
+  // 停止部署轮询，避免离开页面后定时器继续请求
+  stopDeployPolling()
   // 释放 iframe 消息监听，并通知预览页复位高亮
   visualEditor.destroy()
 })

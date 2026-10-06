@@ -110,6 +110,36 @@ export async function deployApp(body: API.AppDeployRequest, options?: { [key: st
   })
 }
 
+/** 此处后端没有提供注释 POST /app/deploy/async */
+export async function submitDeployApp(
+  body: API.AppDeployRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseDeployStatusVO>('/app/deploy/async', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 此处后端没有提供注释 GET /app/deploy/status */
+export async function getDeployStatus(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.getDeployStatusParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseDeployStatusVO>('/app/deploy/status', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 GET /app/download/${param0} */
 export async function downloadApp(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
