@@ -1,17 +1,17 @@
 <template>
-  <a-layout-header class="header">
-    <a-row :wrap="false">
+  <a-layout-header class="header" :class="{ 'is-narrow': narrowScreen }">
+    <div class="header-row">
       <!-- 左侧：Logo和标题 -->
-      <a-col flex="230px">
+      <div class="header-left-col">
         <router-link class="header-left-link" to="/">
           <div class="header-left">
             <img class="logo" src="@/assets/logo.png" alt="Logo" />
             <h1 class="site-title"><span>AI应用生成平台</span></h1>
           </div>
         </router-link>
-      </a-col>
+      </div>
       <!-- 中间：导航菜单 -->
-      <a-col flex="auto">
+      <div class="header-nav-col">
         <a-menu
           class="header-navigation"
           v-model:selectedKeys="current"
@@ -19,9 +19,9 @@
           :items="items"
           @click="handleMenuClick"
         />
-      </a-col>
+      </div>
       <!-- 右侧：用户操作区域 -->
-      <a-col>
+      <div class="header-user-col">
         <div class="user-login-status">
           <template v-if="loginUserStore.loginUser.id">
             <a-dropdown>
@@ -48,13 +48,13 @@
             <a-button type="primary" href="/user/login" class="header-login-button">登录</a-button>
           </template>
         </div>
-      </a-col>
-    </a-row>
+      </div>
+    </div>
   </a-layout-header>
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MenuProps } from 'ant-design-vue'
 import { message } from 'ant-design-vue'
@@ -163,6 +163,20 @@ router.afterEach((to) => {
 })
 
 updateCurrentMenu(router.currentRoute.value.path)
+
+// 窄屏（平板 / 手机）下头部改为两行：菜单独占一行，用户区另起一行。
+// 否则 logo + 菜单 + 用户信息挤在一行里，会把头部撑得比视口更宽
+const narrowScreen = ref(false)
+const syncNarrowScreen = () => {
+  narrowScreen.value = window.innerWidth <= 900
+}
+onMounted(() => {
+  syncNarrowScreen()
+  window.addEventListener('resize', syncNarrowScreen)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncNarrowScreen)
+})
 </script>
 
 <style scoped>
@@ -170,6 +184,36 @@ updateCurrentMenu(router.currentRoute.value.path)
   flex: 0 0 auto;
   background: #fff;
   padding: 0 24px;
+}
+
+/* 头部骨架：左侧固定、菜单居中、右侧用户区，均不允许把头部撑出视口 */
+.header-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+}
+
+.header-left-col {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.header-nav-col {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+
+  /* min-width: 0 让中间列可以被压缩，而不是被菜单的固有宽度顶宽 */
+  min-width: 0;
+}
+
+.header-user-col {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .header-left-link {
@@ -245,50 +289,67 @@ updateCurrentMenu(router.currentRoute.value.path)
 
 .header-navigation :deep(.ant-menu-overflow) {
   width: fit-content;
-  min-width: 230px;
-  height: 50px;
-  margin: 7px auto;
-  padding: 6px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0;
   justify-content: center;
-  background: #f7f9fc;
-  border: 1px solid #edf2fa;
-  border-radius: 14px;
-  box-shadow: 0 4px 14px rgb(31 73 125 / 5%);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item),
 .header-navigation :deep(.ant-menu-horizontal > .ant-menu-submenu) {
+  display: inline-flex;
   top: 0;
-  height: 38px;
-  margin: 0 2px;
-  padding: 0 15px;
+  align-items: center;
+  height: 64px;
+  margin: 0 4px;
+  padding: 0 14px;
   color: #61738d;
   font-size: 14px;
   font-weight: 500;
-  line-height: 38px;
-  border-radius: 9px;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
+  line-height: 1;
+  background: transparent !important;
+  border-radius: 0;
+  transition: color 0.22s ease;
 }
 
-.header-navigation :deep(.ant-menu-horizontal > .ant-menu-item::after),
-.header-navigation :deep(.ant-menu-horizontal > .ant-menu-submenu::after) {
+/* 选中态用底部渐变细线表示：不再用整块蓝色底，避免只有一项时格外突兀 */
+.header-navigation :deep(.ant-menu-horizontal > .ant-menu-item)::after,
+.header-navigation :deep(.ant-menu-horizontal > .ant-menu-submenu)::after {
+  position: absolute;
+  right: 10px;
+  bottom: 12px;
+  left: 10px;
   border-bottom: 0 !important;
+  border-radius: 999px;
+  opacity: 0;
+  transform: scaleX(0.4);
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+  content: '';
+}
+
+.header-navigation :deep(.ant-menu-horizontal > .ant-menu-item:hover)::after,
+.header-navigation :deep(.ant-menu-horizontal > .ant-menu-submenu:hover)::after,
+.header-navigation :deep(.ant-menu-horizontal > .ant-menu-item-selected)::after {
+  height: 2px;
+  background: linear-gradient(90deg, #1677ff, #6d5dfc);
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .header-navigation :deep(.ant-menu-item:hover),
 .header-navigation :deep(.ant-menu-submenu:hover) {
-  color: #fff !important;
-  background: #f1f6ff;
+  color: #1677ff !important;
 }
 
 .header-navigation :deep(.ant-menu-item-selected) {
-  color: #fff !important;
+  color: #1677ff !important;
   font-weight: 600;
-  background: linear-gradient(105deg, #1677ff, #6d5dfc) !important;
-  box-shadow: 0 5px 12px rgb(59 95 219 / 25%);
+  background: transparent !important;
 }
 
 .header-navigation :deep(.ant-menu-item .anticon) {
@@ -296,19 +357,79 @@ updateCurrentMenu(router.currentRoute.value.path)
   font-size: 15px;
 }
 
-@media (max-width: 760px) {
-  .header-navigation :deep(.ant-menu-overflow) {
-    width: auto;
-    min-width: 0;
-    margin-right: 0;
-    margin-left: 0;
-    justify-content: flex-start;
+/* —— 窄屏（<=900px，由 is-narrow 控制）—— */
+.header.is-narrow {
+  height: auto;
+  line-height: normal;
+  padding: 8px 16px 0;
+}
+
+.header.is-narrow .header-row {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.header.is-narrow .header-nav-col {
+  /* block 而不是 flex：作为 flex 项时中间列会按菜单的固有宽度撑开，
+     菜单随之被顶到视口左侧 */
+  display: block;
+  order: 3;
+  flex: 1 1 100%;
+
+  /* 菜单自己会做「多出的项收进省略号」的处理，这里不要再加一层横向滚动 */
+  overflow: hidden;
+}
+
+.header.is-narrow .header-user-col {
+  margin-left: auto;
+}
+
+/* 窄屏菜单：占满整行，放不下的项由 antd 收进末尾的省略号菜单 */
+.header.is-narrow .header-navigation {
+  width: 100%;
+  height: 50px;
+  line-height: 50px;
+}
+
+.header.is-narrow .header-navigation :deep(.ant-menu-overflow) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-start;
+  border: 0;
+  box-shadow: none;
+}
+
+.header.is-narrow .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item) {
+  flex: 0 0 auto;
+  height: 50px;
+  padding: 0 12px;
+}
+
+/* 窄屏选中态：下划线贴着菜单底部 */
+.header.is-narrow .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item)::after {
+  bottom: 4px;
+}
+
+@media (max-width: 480px) {
+  .header {
+    padding: 0 12px;
   }
 
-  .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item) {
-    margin-right: 2px;
-    margin-left: 2px;
-    padding: 0 10px;
+  .header.is-narrow {
+    padding: 8px 12px 0;
+  }
+
+  .site-title {
+    padding: 6px 9px;
+    font-size: 14px;
+  }
+
+  .logo {
+    width: 38px;
+    height: 38px;
   }
 }
 </style>

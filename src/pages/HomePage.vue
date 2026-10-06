@@ -53,7 +53,13 @@
       </header>
       <a-spin :spinning="myLoading">
         <div v-if="myApps.length" class="app-grid">
-          <AppCard v-for="app in myApps" :key="app.id" :app="app" @view-chat="handleViewChat" />
+          <AppCard
+            v-for="app in myApps"
+            :key="app.id"
+            :app="app"
+            :can-view-chat="canViewChat(app)"
+            @view-chat="handleViewChat"
+          />
         </div>
         <a-empty v-else class="app-empty" description="还没有应用，输入一句话即可创建" />
       </a-spin>
@@ -93,7 +99,13 @@
       </header>
       <a-spin :spinning="goodLoading">
         <div v-if="goodApps.length" class="app-grid">
-          <AppCard v-for="app in goodApps" :key="app.id" :app="app" @view-chat="handleViewChat" />
+          <AppCard
+            v-for="app in goodApps"
+            :key="app.id"
+            :app="app"
+            :can-view-chat="canViewChat(app)"
+            @view-chat="handleViewChat"
+          />
         </div>
         <a-empty v-else class="app-empty" description="暂无精选应用" />
       </a-spin>
@@ -112,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons-vue'
@@ -200,8 +212,24 @@ const handleCreateBlank = () => {
   message.info('在上方输入框描述你的应用，即可开始创建').then(() => {})
 }
 
-// 查看对话：进入对话页并加载历史消息（prompt 参数只由创建应用的流程携带）
+// 是否为当前登录用户自己创建的应用：
+// 创建者 id（app.user.id）与登录者 id 不一致时不允许查看对话
+const canViewChat = (app: API.AppVO) => {
+  const loginUserId = loginUserStore.loginUser.id
+  const creatorId = app.user?.id
+  // 任一侧 id 缺失时不拦截（与改动前一致，避免后端未返回 user 时按钮永久禁用）
+  if (!loginUserId || !creatorId) {
+    return true
+  }
+  return String(creatorId) === String(loginUserId)
+}
+
+// 查看对话：先校验创建者与当前登录者是否为同一人，通过后才进入对话页
 const handleViewChat = async (app: API.AppVO) => {
+  if (!canViewChat(app)) {
+    message.warning('无权限查看该应用').then(() => {})
+    return
+  }
   await router.push({
     path: `/app/chat/${app.id}`,
   })
@@ -288,6 +316,11 @@ onMounted(() => {
 <style scoped>
 .home-page {
   position: relative;
+
+  /* 装饰光斑按设计溢出到页面外侧（orb-right 的 right: -220px），必须在这里裁掉，
+     否则会溢进 main-content 的可滚动区域，
+     在 1280~1600 这类笔记本宽度下常驻一条横向滚动条 */
+  overflow: hidden;
   max-width: 1382px;
   margin: 0 auto;
 }
@@ -418,7 +451,10 @@ onMounted(() => {
 
 .app-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  /* 单列宽度上限 440px：应用只有 1~2 个时，卡片不会被拉伸成细长条。
+     列数与列宽由下面的媒体查询接管，容器内没有余量，左边缘始终与标题对齐 */
+  grid-template-columns: repeat(2, minmax(0, 440px));
   gap: 24px;
 }
 
@@ -435,13 +471,19 @@ onMounted(() => {
   margin-top: 26px;
 }
 
-@media (max-width: 1024px) {
+/* 宽屏：每行 3 列（与设计稿一致），单列最多 440px */
+@media (min-width: 1200px) {
   .app-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 440px));
   }
 }
 
+/* 手机：单列 */
 @media (max-width: 760px) {
+  .app-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .hero-section {
     padding: 10px 0 38px;
   }
@@ -458,10 +500,6 @@ onMounted(() => {
   .section-search {
     flex: 1;
     width: auto;
-  }
-
-  .app-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .section-title h2 {

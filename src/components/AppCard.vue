@@ -1,5 +1,5 @@
 <template>
-  <article class="app-card" @click="handleViewChat">
+  <article class="app-card" :class="{ 'is-chat-disabled': !canViewChat }" @click="handleViewChat">
     <div class="card-cover">
       <img
         v-if="app.cover"
@@ -34,7 +34,16 @@
       </div>
     </div>
     <footer class="card-actions">
-      <button type="button" class="card-action chat-action" @click.stop="handleViewChat">
+      <!-- 无权限时不用原生 disabled：那样点击事件不会触发，用户得不到任何解释。
+           这里用 aria-disabled + 禁用态样式，点击时给出提示 -->
+      <button
+        type="button"
+        class="card-action chat-action"
+        :class="{ 'is-disabled': !canViewChat }"
+        :aria-disabled="!canViewChat"
+        :title="canViewChat ? '' : '无权限查看该应用'"
+        @click.stop="handleViewChat"
+      >
         <MessageOutlined />
         查看对话
       </button>
@@ -64,9 +73,12 @@ const props = withDefaults(
     app: API.AppVO
     /** 是否展示精选标识 */
     showPriority?: boolean
+    /** 是否可以查看该应用的对话（创建者与当前登录者一致时才放行） */
+    canViewChat?: boolean
   }>(),
   {
     showPriority: true,
+    canViewChat: true,
   },
 )
 
@@ -75,6 +87,8 @@ const emit = defineEmits<{
   (e: 'view-chat', app: API.AppVO): void
 }>()
 
+// 点击整卡等于点击「查看对话」：权限由首页统一校验，
+// 无权限时首页会拦截并提示「无权限查看该应用」
 const handleViewChat = () => {
   emit('view-chat', props.app)
 }
@@ -92,6 +106,10 @@ const handleViewWork = () => {
 .app-card {
   display: flex;
   flex-direction: column;
+
+  /* 宽度跟随所在列（列宽上限由首页 .app-grid 的 440px 决定），
+     卡片自身不再撑宽，避免应用很少时被拉成细长条 */
+  width: 100%;
   overflow: hidden;
   cursor: pointer;
   background: #fff;
@@ -289,6 +307,36 @@ const handleViewWork = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 非创建者：整卡不再有可点击的反馈，避免误导成能进去 */
+.app-card.is-chat-disabled {
+  cursor: default;
+}
+
+.app-card.is-chat-disabled:hover {
+  border-color: #eef3fa;
+  box-shadow: 0 12px 30px rgb(31 73 125 / 7%);
+  transform: none;
+}
+
+/* 「查看对话」禁用态：置灰 + 禁止光标，hover 时给出文字说明，
+   点击仍会冒泡到按钮自身的处理函数，从而弹出「无权限查看该应用」 */
+.card-action.chat-action.is-disabled {
+  color: #9aa9bf;
+  background: #f5f7fb;
+  border-color: #eaeff7;
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.card-action.chat-action.is-disabled:hover {
+  color: #9aa9bf;
+  background: #f5f7fb;
+  border-color: #eaeff7;
+  box-shadow: none;
+  transform: none;
 }
 
 /* 窄屏：两个标签各占一行，避免长模型名被挤压 */

@@ -584,6 +584,18 @@ const handlePressEnter = (event: KeyboardEvent) => {
   background: #f4f7fc !important;
 }
 
+/* 中等宽度（平板 / 小笔记本，<=960px）：工具栏换行，
+   配置区独占一行，字数 / 发送靠右，避免中间宽度下互相挤压 */
+@media (max-width: 960px) {
+  .toolbar-config {
+    flex: 1 1 100%;
+  }
+
+  .toolbar-actions {
+    flex: 1 1 100%;
+  }
+}
+
 @media (max-width: 760px) {
   .prompt-input {
     padding: 12px 13px 10px;
@@ -604,7 +616,7 @@ const handlePressEnter = (event: KeyboardEvent) => {
   }
 
   .config-field {
-    flex: 1;
+    flex: 1 1 100%;
     min-width: 0;
   }
 

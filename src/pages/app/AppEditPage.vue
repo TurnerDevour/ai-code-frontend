@@ -292,4 +292,33 @@ onMounted(() => {
     margin: 8px 0 0;
   }
 }
+
+/* 手机宽度：标签改为每行独占，表单控件铺满整行。
+   否则固定 4/18 的栅格会把输入框压到小于 antd 的固有最小宽度，
+   内容被右侧裁掉（antd 的 .ant-col-* 优先级更高，需要 !important）。 */
+@media (max-width: 640px) {
+  .app-edit-page :deep(.ant-form-item-label),
+  .app-edit-page :deep(.ant-form-item-control) {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  .app-edit-page :deep(.ant-form-item-label) {
+    padding-bottom: 4px;
+    text-align: left;
+  }
+
+  .app-edit-page :deep(.ant-form-item-row) {
+    flex-wrap: wrap;
+  }
+
+  .priority-select {
+    width: 100%;
+  }
+
+  .field-tip {
+    margin-left: 0;
+  }
+}
 </style>
