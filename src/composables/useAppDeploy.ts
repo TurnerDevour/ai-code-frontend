@@ -10,7 +10,7 @@ import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from
 import { message } from 'ant-design-vue'
 import { getDeployStatus, submitDeployApp } from '@/api/appController'
 import { DEPLOY_STATUS, isDeployInProgress, type DeployStatus } from '@/constant/deploy'
-import { describeDeployStatus } from '@/utils/deploy'
+import { describeDeployStatus, isDeployStale, type DeployStatusWithStale } from '@/utils/deploy'
 
 /** 轮询间隔：1.5s（建议区间 1.5~3s） */
 const POLL_INTERVAL_MS = 1500
@@ -21,7 +21,7 @@ const UNAUTHORIZED_CODE = 40100
 
 export interface UseAppDeployReturn {
   /** 最近一次拿到的部署状态（提交接口或状态查询接口返回） */
-  deployStatus: Ref<API.DeployStatusVO | null>
+  deployStatus: Ref<DeployStatusWithStale | null>
   /** 部署状态值：idle / queued / deploying / ready / failed */
   deployStatusValue: ComputedRef<DeployStatus | undefined>
   /** 提交请求或轮询进行中：用于部署按钮的 loading */
@@ -32,6 +32,8 @@ export interface UseAppDeployReturn {
   deployUrl: ComputedRef<string>
   /** 状态标签的悬浮说明（含排队进度、失败原因） */
   statusTip: ComputedRef<string>
+  /** 已部署的产物是否落后于当前代码（true 表示代码改过、可重新部署） */
+  stale: ComputedRef<boolean>
   /** 提交异步部署并按需轮询；提交失败时抛出异常，由调用方提示 */
   deploy: () => Promise<void>
   /** 进入应用详情时同步一次状态：仍在排队 / 构建中则自动恢复轮询 */
@@ -44,7 +46,7 @@ export interface UseAppDeployReturn {
 const isPageHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
 
 export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
-  const deployStatus = ref<API.DeployStatusVO | null>(null)
+  const deployStatus = ref<DeployStatusWithStale | null>(null)
   /** 提交请求进行中 */
   const submitting = ref(false)
   /** 轮询进行中 */
@@ -63,6 +65,7 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
   const inProgress = computed(() => isDeployInProgress(deployStatus.value?.status))
   const deployUrl = computed(() => deployStatus.value?.deployUrl ?? '')
   const statusTip = computed(() => describeDeployStatus(deployStatus.value))
+  const stale = computed(() => isDeployStale(deployStatus.value))
 
   // 切换应用后旧应用的状态与轮询都不再适用
   watch(appId, () => {
@@ -82,7 +85,7 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
   }
 
   /** 部署完成：提示访问地址，并尽量复制到剪贴板（与旧同步部署的体验保持一致） */
-  const handleDeployReady = async (data: API.DeployStatusVO) => {
+  const handleDeployReady = async (data: DeployStatusWithStale) => {
     const url = data.deployUrl ?? ''
     if (!url) {
       message.success('部署成功').then(() => {})
@@ -192,7 +195,9 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
       // ① 本次没被受理：可能「已经在部署」或「之前已部署完成」
       if (data.accepted === false) {
         if (data.status === DEPLOY_STATUS.READY && data.deployUrl) {
-          message.info('该应用已经部署完成').then(() => {})
+          // 已部署 + 代码没改动：后端会拒绝重复提交，这里如实告知。
+          // （代码改过时后端会受理本次重新部署，不会走到这个分支）
+          message.info('该应用已经部署完成，且代码没有新的改动').then(() => {})
           return
         }
         if (data.status === DEPLOY_STATUS.FAILED) {
@@ -252,6 +257,7 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
     inProgress,
     deployUrl,
     statusTip,
+    stale,
     deploy,
     syncStatus,
     stop,

@@ -202,6 +202,7 @@ declare namespace API {
     queuePosition?: number
     queueSize?: number
     workerCount?: number
+    deployStale?: boolean
   }
 
   type downloadAppParams = {

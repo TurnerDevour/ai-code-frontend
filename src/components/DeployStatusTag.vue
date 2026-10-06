@@ -8,6 +8,7 @@
   >
     <LoadingOutlined v-if="status === DEPLOY_STATUS.DEPLOYING" class="tag-icon" spin />
     <ClockCircleOutlined v-else-if="status === DEPLOY_STATUS.QUEUED" class="tag-icon" />
+    <ExclamationCircleOutlined v-else-if="stale" class="tag-icon" />
     <CheckCircleOutlined v-else-if="status === DEPLOY_STATUS.READY" class="tag-icon" />
     <CloseCircleOutlined v-else-if="status === DEPLOY_STATUS.FAILED" class="tag-icon" />
     {{ label }}
@@ -20,6 +21,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
+  ExclamationCircleOutlined,
   LoadingOutlined,
 } from '@ant-design/icons-vue'
 import { DEPLOY_STATUS, getDeployStatusMeta } from '@/constant/deploy'
@@ -33,16 +35,19 @@ const props = withDefaults(
     queuePosition?: number | null
     /** 部署地址：status=ready 时点击标签即可打开部署后的站点 */
     deployUrl?: string | null
+    /** 已部署但代码改过：标签展示「已部署(有更新)」 */
+    stale?: boolean
   }>(),
   {
     status: '',
     queuePosition: null,
     deployUrl: '',
+    stale: false,
   },
 )
 
 const meta = computed(() => getDeployStatusMeta(props.status))
-const label = computed(() => formatDeployStatusLabel(props.status, props.queuePosition))
+const label = computed(() => formatDeployStatusLabel(props.status, props.queuePosition, props.stale))
 /** 只有「已部署」且拿到地址时标签才可点击 */
 const clickable = computed(() => props.status === DEPLOY_STATUS.READY && !!props.deployUrl)
 

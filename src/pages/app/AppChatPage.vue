@@ -51,6 +51,7 @@
             :status="deployStatusValue"
             :queue-position="deployStatus?.queuePosition"
             :deploy-url="deployUrl"
+            :stale="deployStale"
           />
         </a-tooltip>
         <a-button
@@ -438,22 +439,23 @@ const {
   inProgress: deployInProgress,
   deployUrl,
   statusTip: deployStatusTip,
+  stale: deployStale,
   deploy: startDeploy,
   syncStatus: syncDeployStatus,
   stop: stopDeployPolling,
 } = useAppDeploy(appId)
 
-// 部署按钮：进行中（排队中/部署中）与已部署时置灰
-// 后端对 ready 状态会拒绝重复提交（返回 accepted=false + 现有地址），因此不再让用户重复点
+// 部署按钮：仅在"进行中"（排队中/部署中）置灰。
+// 已部署但代码改过（deployStale）时允许重新部署——否则用户改完应用只能一直看旧站点。
 const deployDisabled = computed(
-  () => deployInProgress.value || deployStatusValue.value === DEPLOY_STATUS.READY,
+  () => deployInProgress.value || (deployStatusValue.value === DEPLOY_STATUS.READY && !deployStale.value),
 )
 
-// 部署按钮文案：已部署、上次失败（重试）、未部署
+// 部署按钮文案：已部署（代码无改动）、代码有更新（重新部署）、上次失败（重试）、未部署
 const deployButtonText = computed(() => {
   switch (deployStatusValue.value) {
     case DEPLOY_STATUS.READY:
-      return '已部署'
+      return deployStale.value ? '重新部署' : '已部署'
     case DEPLOY_STATUS.FAILED:
       return '重新部署'
     default:
