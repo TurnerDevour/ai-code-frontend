@@ -16,14 +16,15 @@ import {
  *   - 服务端虽然会继续生成（工具已经把文件写进磁盘），但对话历史里没有这一轮 AI 回复；
  *   - 用户回到页面看到的是"空回复"，而且 AI 后续追问"不记得"生成过什么。
  *
- * 现在的做法（方案 A）：
- *   - 生成请求挂在这个 store 上（Pinia 实例不随路由卸载销毁），路由离开只解除 UI 订阅；
- *   - 内容与工具消息在此累积，任何时刻重新订阅都能拿到"到目前为止的全部内容"；
- *   - 生成结束后状态保存在 store 里，用户回到页面可以直接看到结果；
- *   - 只有切换应用、用户主动停止、或后端报错时才真正中断。
+ * 现在的做法：
+ *   - 生成请求挂在这个 store 上（Pinia 实例不随路由卸载销毁），路由离开只解除 UI 订阅（方案 A）；
+ *   - 内容与工具消息在此累积，会话快照落到 sessionStorage，整页刷新/浏览器返回后仍能恢复；
+ *   - 后端（VUE_PROJECT）已把生成过程与客户端连接解耦：每个数据帧带 SSE `id`（帧序号），
+ *     客户端刷新/断网回来后调用 `/app/chat/gen/resume?fromSeq=已收到的序号` 续订，
+ *     服务端先补发缺失的帧再继续实时推送，因此零丢失、零重复；
+ *   - 只有切换应用、用户主动停止时才真正中断。
  *
- * 注意：这不改变"服务端会继续生成"的事实，只是让前端把这一轮的结果接住；
- * 服务端的兜底落库见后端 GenerationCompletionHandler（客户端断开也会写入带中断标记的 AI 消息）。
+ * 注意：HTTP 请求的发起与重连都在 store 里，组件卸载只解除自己的订阅，不影响生成本身。
  */
 
 /** 生成会话状态 */
@@ -42,10 +43,22 @@ export interface GenerationSession {
   errorMessage: string
   /** 是否已收到后端的 done 事件 */
   doneReceived: boolean
+  /**
+   * 已收到的最新帧序号（取自 SSE 的 id: 字段）
+   * 它是续订的起点：/app/chat/gen/resume?fromSeq= 会补发该序号之后的帧。
+   */
+  lastSeq: number
+  /**
+   * 已应用到内容里的最大帧序号
+   * 续订补发与实时推送可能让同一帧到达两次，用它做幂等过滤，保证不重复渲染。
+   */
+  appliedSeq: number
   /** 开始时间戳 */
   startedAt: number
   /** 结束时间戳（未结束时为 0） */
   finishedAt: number
+  /** 最近一次收到帧的时间戳：用于判断连接是否已经断了 */
+  lastFrameAt: number
 }
 
 const createSession = (appId: string): GenerationSession => ({
@@ -55,14 +68,17 @@ const createSession = (appId: string): GenerationSession => ({
   toolExecutions: [],
   errorMessage: '',
   doneReceived: false,
+  lastSeq: 0,
+  appliedSeq: 0,
   startedAt: Date.now(),
   finishedAt: 0,
+  lastFrameAt: Date.now(),
 })
 
 /**
  * 会话持久化：写入 sessionStorage
  *
- * 为什么需要：浏览器"返回上一页"或刷新会**整页重新加载**，Pinia 实例被重建、内存里的会话就没了
+ * 为什么需要：浏览器"返回上一页"或刷新会整页重新加载，Pinia 实例被重建、内存里的会话就没了
  * （实测：离开页面后 history.back/forward 回来，内容为空）。
  * sessionStorage 的生命周期正好是"当前标签页"，与生成过程的可见范围一致：
  * 同标签页内返回/刷新能恢复内容，关掉标签页即清理。
@@ -72,6 +88,8 @@ const STORAGE_PREFIX = 'dsh:generation:'
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000
 /** 单条会话的持久化上限：超长内容（几十个文件）不落盘，避免撑爆 sessionStorage 配额 */
 const MAX_PERSIST_CONTENT = 400_000
+/** 流式过程中落盘的最小间隔：每帧都写会明显拖慢渲染 */
+const PERSIST_INTERVAL_MS = 1200
 
 const persistSession = (session: GenerationSession) => {
   if (typeof sessionStorage === 'undefined') {
@@ -79,7 +97,7 @@ const persistSession = (session: GenerationSession) => {
   }
   try {
     if (session.content.length > MAX_PERSIST_CONTENT) {
-      // 内容过大：只保存状态，不保存正文（正文仍可从后端对话历史看到）
+      // 内容过大：只保存状态与序号，不保存正文（正文仍可从后端对话历史看到）
       sessionStorage.setItem(
         STORAGE_PREFIX + session.appId,
         JSON.stringify({ ...session, content: '', toolExecutions: [], persistTruncated: true }),
@@ -105,9 +123,10 @@ const removePersistedSession = (appId: string) => {
 
 /**
  * 恢复某个应用上次未清理的会话
- * <p>
- * 整页刷新后原请求已经断了，因此把仍在 running 的会话标记为 stopped（保留已生成内容），
- * 页面据此展示"生成已中断"而不是一直转圈。
+ *
+ * 整页刷新后原来的 fetch 已经不存在了，因此把仍在 running 的会话标记为 stopped
+ * （内容保留，页面据此展示"已中断"而不是一直转圈）；
+ * 页面随后会用 resumeGeneration 通过 resume 接口把真正的生成接回来。
  *
  * @param appId 应用 id
  */
@@ -128,8 +147,11 @@ const restoreSession = (appId: string): GenerationSession | null => {
       removePersistedSession(appId)
       return null
     }
+    // 兼容旧快照：补齐后来新增的字段
+    parsed.lastSeq = parsed.lastSeq ?? 0
+    parsed.appliedSeq = parsed.appliedSeq ?? 0
+    parsed.lastFrameAt = parsed.lastFrameAt ?? parsed.startedAt ?? Date.now()
     if (parsed.status === 'running') {
-      // 整页刷新：原来的连接已经不存在了，不能继续显示"生成中"
       parsed.status = 'stopped'
       parsed.errorMessage = ''
       parsed.finishedAt = parsed.finishedAt || Date.now()
@@ -141,11 +163,22 @@ const restoreSession = (appId: string): GenerationSession | null => {
   }
 }
 
+/** 重连退避：第 n 次失败后等待的毫秒数 */
+const RECONNECT_DELAYS_MS = [800, 1500, 3000, 5000, 8000]
+/** 最多重连次数，避免后端一直不可用时无限重试 */
+const MAX_RECONNECT_ATTEMPTS = 5
+
 export const useGenerationStore = defineStore('generation', () => {
   /** appId -> 会话 */
   const sessions = ref<Record<string, GenerationSession>>({})
   /** 当前活动的生成请求控制器：appId -> AbortController */
   const controllers = new Map<string, AbortController>()
+  /** 用户主动停止的会话：与"断网/刷新导致的断开"区分开，后者会自动续订 */
+  const manualStops = new Set<string>()
+  /** 正在等待重连的应用：避免重复发起续订 */
+  const reconnecting = new Set<string>()
+  /** 上次落盘时间：用于节流 */
+  const lastPersistAt = new Map<string, number>()
 
   /** 某应用是否正在生成 */
   const isGenerating = (appId: string) => sessions.value[appId]?.status === 'running'
@@ -170,109 +203,28 @@ export const useGenerationStore = defineStore('generation', () => {
   }
 
   /**
-   * 启动生成：已存在运行中的会话时直接复用，不会重复发起请求
-   *
-   * @param appId  应用 id
-   * @param prompt 提示词
+   * 落盘（节流）：流式过程中最多每 PERSIST_INTERVAL_MS 写一次，
+   * 关键节点（开始/结束/状态变化）用 immediate 立即写。
    */
-  const startGeneration = (appId: string, prompt: string) => {
-    if (isGenerating(appId)) {
-      return
+  const schedulePersist = (session: GenerationSession, immediate = false) => {
+    const now = Date.now()
+    const last = lastPersistAt.get(session.appId) ?? 0
+    if (immediate || now - last >= PERSIST_INTERVAL_MS) {
+      lastPersistAt.set(session.appId, now)
+      persistSession(session)
     }
-    const controller = new AbortController()
-    controllers.set(appId, controller)
-    sessions.value[appId] = createSession(appId)
-    const session = sessions.value[appId]
-    // 立刻落一份：用户可能刚发出消息就刷新页面，也要能恢复出"这条生成存在"
-    persistSession(session)
-
-    const patch = (updater: (target: GenerationSession) => void) => {
-      const target = sessions.value[appId]
-      if (!target) {
-        return
-      }
-      updater(target)
-      // 每次变化都落一份到 sessionStorage：整页刷新/浏览器返回后仍能恢复
-      persistSession(target)
-    }
-
-    void streamSse<string>({
-      url: '/app/chat/gen/code',
-      params: { appId, prompt },
-      abortController: controller,
-      onMessage: (event) => {
-        // 后端保证任何情况下都以 event:done 结束
-        if (event.event === 'done') {
-          patch((target) => {
-            target.doneReceived = true
-          })
-          return
-        }
-        const streamMessage = parseStreamMessage(event.data)
-        if (streamMessage) {
-          handleStreamMessage(streamMessage, patch)
-          return
-        }
-        // HTML / 多文件模式是纯文本增量（兼容 {d: '...'} 包装）
-        const payload = event.data as unknown
-        const chunk =
-          typeof payload === 'string'
-            ? payload
-            : payload && typeof (payload as { d?: unknown }).d === 'string'
-              ? (payload as { d: string }).d
-              : ''
-        if (chunk) {
-          patch((target) => {
-            target.content += chunk
-          })
-        }
-      },
-      onError: (error) => {
-        patch((target) => {
-          target.status = 'error'
-          target.errorMessage = (error as Error)?.message || '生成失败，请重试'
-          target.finishedAt = Date.now()
-        })
-      },
-      onClose: () => {
-        const aborted = controller.signal.aborted
-        patch((target) => {
-          if (target.status === 'running') {
-            if (target.doneReceived) {
-              target.status = 'done'
-            } else if (aborted) {
-              // 主动中断（切换应用/用户停止）：保留已生成内容，标记为已停止
-              target.status = 'stopped'
-            } else {
-              // 没等到 done 连接就关闭：按失败处理，避免把半成品当成功
-              target.status = 'error'
-              target.errorMessage = '生成连接已中断，请重试'
-            }
-          }
-          target.finishedAt = Date.now()
-        })
-        controllers.delete(appId)
-      },
-    })
   }
 
   /** 处理一条 VUE_PROJECT 的 JSON 消息 */
-  const handleStreamMessage = (
-    message: ParsedStreamMessage,
-    patch: (updater: (target: GenerationSession) => void) => void,
-  ) => {
+  const applyStreamMessage = (session: GenerationSession, message: ParsedStreamMessage) => {
     if (message.type === STREAM_MESSAGE_TYPE.AI_RESPONSE) {
       if (message.data) {
-        patch((target) => {
-          target.content += message.data
-        })
+        session.content += message.data
       }
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
-      patch((target) => {
-        target.content += '\n\n> [🔧 选择工具] 写入文件\n\n'
-      })
+      session.content += '\n\n> [🔧 选择工具] 写入文件\n\n'
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_EXECUTED) {
@@ -282,26 +234,192 @@ export const useGenerationStore = defineStore('generation', () => {
       }
       const suffix = file.relativePath.split('.').pop() ?? ''
       const fence = suffix && suffix !== file.relativePath ? suffix : 'text'
-      patch((target) => {
-        target.toolExecutions.push(file)
-        target.content += `\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`
-      })
+      session.toolExecutions.push(file)
+      session.content += `\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.ERROR) {
-      patch((target) => {
-        target.status = 'error'
-        target.errorMessage = message.data || '生成失败，请重试'
-      })
+      session.status = 'error'
+      session.errorMessage = message.data || '生成失败，请重试'
+      session.finishedAt = Date.now()
     }
+  }
+
+  /** 应用一帧数据到会话（按帧序号幂等：重复帧直接丢弃） */
+  const applyFrame = (
+    session: GenerationSession,
+    frame: { id?: string; event?: string; data: unknown },
+  ) => {
+    const seq = Number(frame.id)
+    const hasSeq = frame.id !== undefined && frame.id !== '' && !Number.isNaN(seq)
+    if (hasSeq && seq <= session.appliedSeq) {
+      // 续订补发与实时推送重叠时同一帧会到达两次，这里跳过，保证不重复渲染
+      return
+    }
+    if (hasSeq) {
+      session.lastSeq = Math.max(session.lastSeq, seq)
+    }
+    session.lastFrameAt = Date.now()
+    if (frame.event === 'done') {
+      session.doneReceived = true
+      schedulePersist(session, true)
+      return
+    }
+    const message = parseStreamMessage(frame.data)
+    if (message) {
+      applyStreamMessage(session, message)
+    } else {
+      // HTML / 多文件模式是纯文本增量（兼容 {d: '...'} 包装）
+      const payload = frame.data as unknown
+      const chunk =
+        typeof payload === 'string'
+          ? payload
+          : payload && typeof (payload as { d?: unknown }).d === 'string'
+            ? (payload as { d: string }).d
+            : ''
+      if (chunk) {
+        session.content += chunk
+      }
+    }
+    if (hasSeq) {
+      session.appliedSeq = seq
+    }
+    schedulePersist(session)
+  }
+
+  /** 连接结束时的状态收口 */
+  const settleSession = (session: GenerationSession, aborted: boolean) => {
+    if (session.status === 'running') {
+      if (session.doneReceived) {
+        session.status = 'done'
+      } else if (aborted) {
+        // 主动中断（切换应用/用户停止）：保留已生成内容
+        session.status = 'stopped'
+      } else {
+        session.status = 'error'
+        session.errorMessage = '生成连接已中断，请重试'
+      }
+      session.finishedAt = Date.now()
+    }
+    schedulePersist(session, true)
+    controllers.delete(session.appId)
+  }
+
+  /**
+   * 发起（或续订）生成流
+   *
+   * @param session 会话
+   * @param url     请求地址：首次是 /app/chat/gen/code，续订是 /app/chat/gen/resume
+   * @param params  查询参数
+   * @param attempt 当前重连次数（0 表示首次连接）
+   */
+  const runGeneration = (
+    session: GenerationSession,
+    url: string,
+    params: Record<string, string | number>,
+    attempt: number,
+  ) => {
+    const appId = session.appId
+    const controller = controllers.get(appId)
+    if (!controller) {
+      return
+    }
+    void streamSse<unknown>({
+      url,
+      params,
+      abortController: controller,
+      onMessage: (event) => applyFrame(session, event),
+      onClose: () => {
+        controllers.delete(appId)
+        // 主动停止 / 收到 done / 已失败：直接收口
+        if (session.status !== 'running' || manualStops.has(appId) || session.doneReceived) {
+          settleSession(session, controller.signal.aborted)
+          return
+        }
+        // 连接意外断开：自动续订。服务端的生成是独立的，这里只是把订阅接回来
+        if (attempt < MAX_RECONNECT_ATTEMPTS) {
+          const delay = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]
+          reconnecting.add(appId)
+          session.errorMessage = ''
+          schedulePersist(session)
+          window.setTimeout(() => {
+            reconnecting.delete(appId)
+            if (manualStops.has(appId) || session.status !== 'running') {
+              return
+            }
+            controllers.set(appId, new AbortController())
+            runGeneration(session, '/app/chat/gen/resume', { appId, fromSeq: session.lastSeq }, attempt + 1)
+          }, delay)
+          return
+        }
+        session.status = 'error'
+        session.errorMessage = '生成连接多次中断，请重试'
+        session.finishedAt = Date.now()
+        schedulePersist(session, true)
+      },
+    })
+  }
+
+  /**
+   * 启动生成：已存在运行中的会话时直接复用，不会重复发起请求
+   *
+   * @param appId  应用 id
+   * @param prompt 提示词
+   */
+  const startGeneration = (appId: string, prompt: string) => {
+    if (isGenerating(appId) || reconnecting.has(appId)) {
+      return
+    }
+    manualStops.delete(appId)
+    controllers.set(appId, new AbortController())
+    sessions.value[appId] = createSession(appId)
+    const session = sessions.value[appId]
+    // 立刻落一份：用户可能刚发出消息就刷新页面，也要能恢复出"这条生成存在"
+    schedulePersist(session, true)
+    runGeneration(session, '/app/chat/gen/code', { appId, prompt }, 0)
+  }
+
+  /**
+   * 续订：把"服务端仍在生成、但本地连接已断"的任务接回来
+   *
+   * 用于整页刷新 / 浏览器返回 / 网络中断后的恢复。服务端会先补发 fromSeq 之后的帧
+   * （按帧序号幂等，重复的不会应用），再继续实时推送。
+   *
+   * @param appId 应用 id
+   * @returns 是否真的发起了续订
+   */
+  const resumeGeneration = (appId: string): boolean => {
+    const session = sessions.value[appId] ?? restoreSession(appId)
+    if (!session) {
+      return false
+    }
+    sessions.value[appId] = session
+    if (reconnecting.has(appId) || controllers.has(appId)) {
+      return false
+    }
+    // 已经结束的会话不需要续订
+    if (session.status === 'done' || session.status === 'error' || session.doneReceived) {
+      return false
+    }
+    manualStops.delete(appId)
+    session.status = 'running'
+    session.errorMessage = ''
+    session.finishedAt = 0
+    controllers.set(appId, new AbortController())
+    schedulePersist(session, true)
+    runGeneration(session, '/app/chat/gen/resume', { appId, fromSeq: session.lastSeq }, 0)
+    return true
   }
 
   /**
    * 中断某个应用的生成（切换应用时用；用户主动"停止生成"也走这里）
    *
+   * 与"断网/刷新导致的断开"不同：这里会标记为主动停止，不再自动重连。
+   *
    * @param appId 应用 id
    */
   const abortGeneration = (appId: string) => {
+    manualStops.add(appId)
     const controller = controllers.get(appId)
     if (controller) {
       controller.abort()
@@ -311,7 +429,7 @@ export const useGenerationStore = defineStore('generation', () => {
     if (session && session.status === 'running') {
       session.status = 'stopped'
       session.finishedAt = Date.now()
-      persistSession(session)
+      schedulePersist(session, true)
     }
   }
 
@@ -320,6 +438,7 @@ export const useGenerationStore = defineStore('generation', () => {
     abortGeneration(appId)
     delete sessions.value[appId]
     removePersistedSession(appId)
+    lastPersistAt.delete(appId)
   }
 
   return {
@@ -328,6 +447,7 @@ export const useGenerationStore = defineStore('generation', () => {
     isGenerating,
     getSession,
     startGeneration,
+    resumeGeneration,
     abortGeneration,
     clearSession,
   }

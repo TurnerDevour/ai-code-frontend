@@ -86,6 +86,36 @@ export async function chatToGenCode(
   })
 }
 
+/** 此处后端没有提供注释 GET /app/chat/gen/resume */
+export async function resumeGenCode(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.resumeGenCodeParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.ServerSentEventString[]>('/app/chat/gen/resume', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
+/** 此处后端没有提供注释 GET /app/chat/gen/status */
+export async function getGenStatus(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.getGenStatusParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseGenerationStatusVO>('/app/chat/gen/status', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 POST /app/delete */
 export async function deleteApp(body: API.DeleteRequest, options?: { [key: string]: any }) {
   return request<API.BaseResponseBoolean>('/app/delete', {

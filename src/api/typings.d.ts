@@ -88,6 +88,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseGenerationStatusVO = {
+    code?: number
+    data?: GenerationStatusVO
+    message?: string
+  }
+
   type BaseResponseLoginUserVO = {
     code?: number
     data?: LoginUserVO
@@ -202,6 +208,16 @@ declare namespace API {
     appId: string
   }
 
+  type GenerationStatusVO = {
+    appId?: string
+    status?: string
+    message?: string
+    contentLength?: number
+    lastSeq?: number
+    errorMessage?: string
+    running?: boolean
+  }
+
   type getAppVOByIdByAdminParams = {
     id: string
   }
@@ -211,6 +227,10 @@ declare namespace API {
   }
 
   type getDeployStatusParams = {
+    appId: string
+  }
+
+  type getGenStatusParams = {
     appId: string
   }
 
@@ -262,6 +282,12 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type resumeGenCodeParams = {
+    appId: string
+    fromSeq?: number
+    subId?: string
   }
 
   type ServerSentEventString = Record<string, any>

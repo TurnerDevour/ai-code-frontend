@@ -370,12 +370,13 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 /**
  * 生成会话 store：生成请求挂在这里，页面卸载不会中断它
- * （方案 A：用户点返回后生成继续跑完，回到页面从快照恢复内容）
+ * （用户点返回后生成继续跑完；刷新/断网回来时用 resumeGeneration 按帧序号续订，零丢失零重复）
  */
 const {
   isGenerating,
   getSession: getGenerationSession,
   startGeneration,
+  resumeGeneration,
   abortGeneration,
 } = useGenerationStore()
 
@@ -803,6 +804,72 @@ const genCode = async (prompt: string) => {
   startGeneration(appId.value, prompt)
 }
 
+/**
+ * 把 store 里某个应用正在进行的生成"接回"到页面上的一条 AI 消息
+ * <p>
+ * 用于整页刷新/浏览器返回后的续订场景：内容继续在 store 里累积，这里负责把它同步到消息上。
+ * 新的生成由 {@link genCode} 内部自己完成订阅，不走这里。
+ *
+ * @param aiMessageId 要同步的 AI 消息 id
+ */
+const attachGenerationToMessage = (aiMessageId: string) => {
+  // 已同步进 UI 的内容长度：页面重新挂载后从 0 开始，会按快照整体重建
+  let syncedLength = 0
+  let hasError = false
+  const updateAiMessage = (updater: (message: ChatMessage) => void) => {
+    const target = sessionMessages.value.find((item) => item.id === aiMessageId)
+    if (target) {
+      updater(target)
+    }
+  }
+  const stopWatch = watch(
+    () => {
+      const session = getGenerationSession(appId.value)
+      return `${session?.content.length ?? 0}:${session?.status ?? 'none'}`
+    },
+    () => {
+      const session = getGenerationSession(appId.value)
+      const content = session?.content ?? ''
+      const finished = !!session && session.status !== 'running'
+      if (content.length < syncedLength) {
+        // 内容变短（会话被重置）：整体重建
+        syncedLength = 0
+        updateAiMessage((target) => {
+          target.content = ''
+        })
+      }
+      if (content.length > syncedLength) {
+        const delta = content.slice(syncedLength)
+        syncedLength = content.length
+        updateAiMessage((target) => {
+          target.content += delta
+        })
+        scrollToBottom()
+      }
+      if (session?.status === 'error' && !hasError) {
+        hasError = true
+        updateAiMessage((target) => {
+          target.status = 'error'
+          target.errorMessage = session.errorMessage || '生成失败，请重试'
+          flushMarkdown(target)
+        })
+        generating.value = false
+        return
+      }
+      if (session?.status === 'done' || session?.status === 'stopped') {
+        updateAiMessage((target) => {
+          target.status = 'done'
+          flushMarkdown(target)
+        })
+        generating.value = false
+      }
+      updateAiMessage((target) => (finished ? flushMarkdown(target) : scheduleMarkdown(target)))
+    },
+    { immediate: true },
+  )
+  activeGenerationWatch = stopWatch
+}
+
 // 是否已达到输入上限（达到后计数器转为警示色，与首页输入框一致）
 const isInputAtLimit = computed(() => userInput.value.length >= CHAT_INPUT_MAX_LENGTH)
 
@@ -992,8 +1059,12 @@ const handleDetailDelete = async () => {
 /**
  * 从全局生成会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回后的场景）
  * <p>
- * 生成请求挂在 store（并持久化到 sessionStorage），所以刷新后内容还在；
+ * 生成请求挂在 store（并持久化到 sessionStorage + 帧序号），所以刷新后内容还在；
  * 但此时历史接口里可能还没有这条 AI 消息，需要主动把它渲染出来。
+ * <p>
+ * 另外：如果这一轮生成其实还在服务端跑（会话里记着帧序号），这里会用
+ * `/app/chat/gen/resume?fromSeq=` 把订阅接回来，服务端补发缺失的帧后继续实时推送，
+ * 因此刷新不会丢掉"离开期间"生成的内容，也不会重复渲染已经看过的部分。
  *
  * @returns 是否恢复出了内容
  */
@@ -1006,21 +1077,32 @@ const recoverSessionMessage = () => {
   if (!session) {
     return false
   }
+  // 真正还在生成的会话：用帧序号接回订阅（服务端补发缺失帧后继续推送）
+  const resuming = resumeGeneration(targetAppId)
   const existing = sessionMessages.value.find((item) => item.role === 'ai')
   if (existing) {
+    if (resuming) {
+      // 已有消息（例如历史里已经落库的这条）：把 store 的新内容继续同步到它上面
+      generating.value = true
+      attachGenerationToMessage(existing.id)
+    }
     return true
   }
+  const messageId = createMessageIdGenerator()
   sessionMessages.value.push({
-    id: createMessageIdGenerator(),
+    id: messageId,
     role: 'ai',
     content: session.content,
     html: renderMarkdown(session.content),
-    status: session.status === 'error' ? 'error' : 'done',
+    status: resuming || session.status === 'running' ? 'loading' : 'done',
     errorMessage: session.errorMessage || undefined,
   })
-  generating.value = session.status === 'running'
-  // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
-  if (session.status !== 'running') {
+  generating.value = resuming || session.status === 'running'
+  if (resuming) {
+    // 续订中：内容会继续在 store 里累积，订阅它继续渲染
+    attachGenerationToMessage(messageId)
+  } else if (!generating.value) {
+    // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
     refreshPreview()
   }
   return true
