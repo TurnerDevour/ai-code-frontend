@@ -32,6 +32,10 @@ export interface ParsedStreamMessage {
   name: string
   /** tool_executed 的入参 JSON 字符串 */
   arguments: string
+  /** tool_executed 是否执行失败（参数不合法 / 工具名不存在 / 工具内部异常） */
+  failed: boolean
+  /** tool_executed 的工具返回内容（失败时即失败原因） */
+  result: string
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -66,6 +70,10 @@ export const parseStreamMessage = (payload: unknown): ParsedStreamMessage | null
     data: asString(record.data),
     name: asString(record.name),
     arguments: asString(record.arguments),
+    // 后端 ToolExecutedMessage.failed：LangChain4j 对"参数不合法 / 工具名不存在 / 工具异常"
+    // 同样会回调 onToolExecuted，因此必须显式区分，否则界面上"写了文件"与"根本没写"长得一样
+    failed: record.failed === true,
+    result: asString(record.result),
   }
 }
 

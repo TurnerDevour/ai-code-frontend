@@ -1,5 +1,7 @@
 // 对话历史相关常量（与后端 ChatMessageTypeEnum、ChatHistoryConstant 保持一致）
 
+import { createEnumNameGetter } from '@/utils/enumOptions'
+
 /** 对话消息类型枚举值 */
 export const CHAT_MESSAGE_TYPE = {
   /** 用户消息 */
@@ -20,22 +22,8 @@ export const CHAT_MESSAGE_TYPE_OPTIONS: { label: string; value: ChatMessageType 
   { label: '错误消息', value: CHAT_MESSAGE_TYPE.ERROR },
 ]
 
-/** 对话消息类型名称映射：值 -> 中文名称 */
-export const CHAT_MESSAGE_TYPE_NAME_MAP = CHAT_MESSAGE_TYPE_OPTIONS.reduce<Record<string, string>>(
-  (map, option) => {
-    map[option.value] = option.label
-    return map
-  },
-  {},
-)
-
 /** 获取对话消息类型的中文名称，未知类型原样返回，空值返回 - */
-export const getChatMessageTypeName = (messageType?: string) => {
-  if (!messageType) {
-    return '-'
-  }
-  return CHAT_MESSAGE_TYPE_NAME_MAP[messageType] ?? messageType
-}
+export const getChatMessageTypeName = createEnumNameGetter(CHAT_MESSAGE_TYPE_OPTIONS)
 
 /** 对话历史每次加载的条数（对应后端 ChatHistoryConstant.DEFAULT_PAGE_SIZE） */
 export const CHAT_HISTORY_PAGE_SIZE = 10

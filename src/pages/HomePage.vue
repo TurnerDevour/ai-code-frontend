@@ -26,112 +26,62 @@
     </section>
 
     <!-- 我的应用 -->
-    <section class="app-section">
-      <header class="section-header">
-        <div class="section-title">
-          <h2>我的应用</h2>
-          <span class="section-tip">共 {{ myTotal }} 个应用</span>
-        </div>
-        <div class="section-actions">
-          <a-input
-            v-model:value="mySearch.appName"
-            class="section-search"
-            placeholder="搜索我的应用"
-            allow-clear
-            @press-enter="doSearchMy"
-            @change="handleMySearchChange"
-          >
-            <template #prefix>
-              <SearchOutlined />
-            </template>
-          </a-input>
-          <a-button type="primary" class="create-button" @click="handleCreateBlank">
-            <PlusOutlined />
-            创建应用
-          </a-button>
-        </div>
-      </header>
-      <a-spin :spinning="myLoading">
-        <div v-if="myApps.length" class="app-grid">
-          <AppCard
-            v-for="app in myApps"
-            :key="app.id"
-            :app="app"
-            :can-view-chat="canViewChat(app)"
-            @view-chat="handleViewChat"
-          />
-        </div>
-        <a-empty v-else class="app-empty" description="还没有应用，输入一句话即可创建" />
-      </a-spin>
-      <div v-if="myTotal > HOME_PAGE_SIZE" class="pagination-wrapper">
-        <a-pagination
-          :current="mySearch.pageNum"
-          :page-size="HOME_PAGE_SIZE"
-          :total="myTotal"
-          :show-size-changer="false"
-          hide-on-single-page
-          @change="handleMyPageChange"
-        />
-      </div>
-    </section>
+    <AppSection
+      v-model:keyword="mySearch.appName"
+      title="我的应用"
+      :tip="`共 ${myTotal} 个应用`"
+      search-placeholder="搜索我的应用"
+      empty-text="还没有应用，输入一句话即可创建"
+      :apps="myApps"
+      :total="myTotal"
+      :page-num="mySearch.pageNum ?? 1"
+      :page-size="HOME_PAGE_SIZE"
+      :loading="myLoading"
+      :can-view-chat="canViewChat"
+      @search="doSearchMy"
+      @clear="handleMySearchChange"
+      @change-page="handleMyPageChange"
+      @view-chat="handleViewChat"
+    >
+      <template #actions>
+        <a-button type="primary" class="create-button" @click="handleCreateBlank">
+          <PlusOutlined />
+          创建应用
+        </a-button>
+      </template>
+    </AppSection>
 
     <!-- 精选应用 -->
-    <section class="app-section">
-      <header class="section-header">
-        <div class="section-title">
-          <h2>精选案例</h2>
-          <span class="section-tip">来自社区的优秀作品</span>
-        </div>
-        <div class="section-actions">
-          <a-input
-            v-model:value="goodSearch.appName"
-            class="section-search"
-            placeholder="搜索精选应用"
-            allow-clear
-            @press-enter="doSearchGood"
-            @change="handleGoodSearchChange"
-          >
-            <template #prefix>
-              <SearchOutlined />
-            </template>
-          </a-input>
-        </div>
-      </header>
-      <a-spin :spinning="goodLoading">
-        <div v-if="goodApps.length" class="app-grid">
-          <AppCard
-            v-for="app in goodApps"
-            :key="app.id"
-            :app="app"
-            :can-view-chat="canViewChat(app)"
-            @view-chat="handleViewChat"
-          />
-        </div>
-        <a-empty v-else class="app-empty" description="暂无精选应用" />
-      </a-spin>
-      <div v-if="goodTotal > HOME_PAGE_SIZE" class="pagination-wrapper">
-        <a-pagination
-          :current="goodSearch.pageNum"
-          :page-size="HOME_PAGE_SIZE"
-          :total="goodTotal"
-          :show-size-changer="false"
-          hide-on-single-page
-          @change="handleGoodPageChange"
-        />
-      </div>
-    </section>
+    <AppSection
+      v-model:keyword="goodSearch.appName"
+      title="精选案例"
+      tip="来自社区的优秀作品"
+      search-placeholder="搜索精选应用"
+      empty-text="暂无精选应用"
+      :apps="goodApps"
+      :total="goodTotal"
+      :page-num="goodSearch.pageNum ?? 1"
+      :page-size="HOME_PAGE_SIZE"
+      :loading="goodLoading"
+      :can-view-chat="canViewChat"
+      @search="doSearchGood"
+      @clear="handleGoodSearchChange"
+      @change-page="handleGoodPageChange"
+      @view-chat="handleViewChat"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined } from '@ant-design/icons-vue'
+import AppSection from '@/components/AppSection.vue'
 import PromptInput from '@/components/PromptInput.vue'
-import AppCard from '@/components/AppCard.vue'
 import { addApp, listGoodAppVoByPage, listMyAppVoByPage } from '@/api/appController'
-import { useLoginUserStore } from '@/stores/useLoginUserStore'
+import { useAccess } from '@/composables/useAccess'
+import { useMessage } from '@/composables/useMessage'
+import { usePagedQuery } from '@/composables/usePagedQuery'
 import { HOME_PAGE_SIZE, PROMPT_PRESETS } from '@/constant/app'
 import { CODE_GEN_TYPE } from '@/constant/codeGenType'
 import type { CodeGenType } from '@/constant/codeGenType'
@@ -140,7 +90,8 @@ import type { AiModelType } from '@/constant/aiModelType'
 import { CHAT_INPUT_MAX_LENGTH } from '@/constant/chat.ts'
 
 const router = useRouter()
-const loginUserStore = useLoginUserStore()
+const { isLoggedIn, canViewChat } = useAccess()
+const { info, warning, fail } = useMessage()
 
 const initPrompt = ref('')
 // 创建应用时选择的代码生成类型与 AI 模型类型（与后端 AppAddRequest 对应）
@@ -148,24 +99,50 @@ const newAppCodeGenType = ref<CodeGenType>(CODE_GEN_TYPE.MULTI_FILE)
 const newAppAiModelType = ref<AiModelType>(AI_MODEL_TYPE.DEEPSEEK_FLASH)
 const creating = ref(false)
 
-const myApps = ref<API.AppVO[]>([])
-const myTotal = ref(0)
-const myLoading = ref(false)
-const mySearch = reactive<API.AppQueryRequest>({
-  pageNum: 1,
+// ---- 我的应用 ----
+const {
+  dataList: myApps,
+  total: myTotal,
+  loading: myLoading,
+  query: mySearch,
+  search: doSearchMy,
+  changePageNum: handleMyPageChange,
+  handleInputClear: handleMySearchChange,
+} = usePagedQuery<API.AppVO, API.AppQueryRequest>({
+  initialQuery: {
+    pageNum: 1,
+    pageSize: HOME_PAGE_SIZE,
+    sortField: 'create_time',
+    sortOrder: 'descend',
+  },
   pageSize: HOME_PAGE_SIZE,
-  sortField: 'create_time',
-  sortOrder: 'descend',
+  showSizeChanger: false,
+  failPrefix: '获取我的应用失败',
+  // 未登录时不请求「我的应用」，与列表为空保持一致的展示
+  beforeLoad: () => isLoggedIn.value,
+  fetchPage: (query) => listMyAppVoByPage({ ...query }),
 })
 
-const goodApps = ref<API.AppVO[]>([])
-const goodTotal = ref(0)
-const goodLoading = ref(false)
-const goodSearch = reactive<API.AppQueryRequest>({
-  pageNum: 1,
+// ---- 精选应用 ----
+const {
+  dataList: goodApps,
+  total: goodTotal,
+  loading: goodLoading,
+  query: goodSearch,
+  search: doSearchGood,
+  changePageNum: handleGoodPageChange,
+  handleInputClear: handleGoodSearchChange,
+} = usePagedQuery<API.AppVO, API.AppQueryRequest>({
+  initialQuery: {
+    pageNum: 1,
+    pageSize: HOME_PAGE_SIZE,
+    sortField: 'create_time',
+    sortOrder: 'descend',
+  },
   pageSize: HOME_PAGE_SIZE,
-  sortField: 'create_time',
-  sortOrder: 'descend',
+  showSizeChanger: false,
+  failPrefix: '获取精选应用失败',
+  fetchPage: (query) => listGoodAppVoByPage({ ...query }),
 })
 
 // 创建应用并跳转到对话页
@@ -173,9 +150,8 @@ const handleCreateApp = async (
   prompt: string,
   options: { codeGenType: CodeGenType; aiModelType: AiModelType },
 ) => {
-  const loginUser = loginUserStore.loginUser
-  if (!loginUser.id) {
-    message.warning('请先登录').then(() => {})
+  if (!isLoggedIn.value) {
+    warning('请先登录')
     await router.push({
       path: '/user/login',
       query: { redirect: '/' },
@@ -197,7 +173,7 @@ const handleCreateApp = async (
         query: { prompt },
       })
     } else {
-      message.error('创建应用失败，' + res.data.message).then(() => {})
+      fail('创建应用失败', res.data)
     }
   } finally {
     creating.value = false
@@ -209,108 +185,19 @@ const handleCreateBlank = () => {
   input?.focus()
   // 现在只有中间内容区滚动，回到顶部要作用在该容器上
   document.querySelector<HTMLElement>('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
-  message.info('在上方输入框描述你的应用，即可开始创建').then(() => {})
-}
-
-// 是否为当前登录用户自己创建的应用：
-// 创建者 id（app.user.id）与登录者 id 不一致时不允许查看对话
-const canViewChat = (app: API.AppVO) => {
-  const loginUserId = loginUserStore.loginUser.id
-  const creatorId = app.user?.id
-  // 任一侧 id 缺失时不拦截（与改动前一致，避免后端未返回 user 时按钮永久禁用）
-  if (!loginUserId || !creatorId) {
-    return true
-  }
-  return String(creatorId) === String(loginUserId)
+  info('在上方输入框描述你的应用，即可开始创建')
 }
 
 // 查看对话：先校验创建者与当前登录者是否为同一人，通过后才进入对话页
 const handleViewChat = async (app: API.AppVO) => {
   if (!canViewChat(app)) {
-    message.warning('无权限查看该应用').then(() => {})
+    warning('无权限查看该应用')
     return
   }
   await router.push({
     path: `/app/chat/${app.id}`,
   })
 }
-
-// 我的应用列表
-const fetchMyApps = async () => {
-  if (!loginUserStore.loginUser.id) {
-    myApps.value = []
-    myTotal.value = 0
-    return
-  }
-  myLoading.value = true
-  try {
-    const res = await listMyAppVoByPage({ ...mySearch })
-    if (res.data.code === 0 && res.data.data) {
-      myApps.value = res.data.data.records ?? []
-      myTotal.value = Number(res.data.data.totalRow ?? 0)
-    } else {
-      message.error('获取我的应用失败，' + res.data.message).then(() => {})
-    }
-  } finally {
-    myLoading.value = false
-  }
-}
-
-const doSearchMy = () => {
-  mySearch.pageNum = 1
-  fetchMyApps()
-}
-
-// 输入框清空时立即刷新
-const handleMySearchChange = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (!target.value) {
-    doSearchMy()
-  }
-}
-
-const handleMyPageChange = (page: number) => {
-  mySearch.pageNum = page
-  fetchMyApps()
-}
-
-// 精选应用列表
-const fetchGoodApps = async () => {
-  goodLoading.value = true
-  try {
-    const res = await listGoodAppVoByPage({ ...goodSearch })
-    if (res.data.code === 0 && res.data.data) {
-      goodApps.value = res.data.data.records ?? []
-      goodTotal.value = Number(res.data.data.totalRow ?? 0)
-    } else {
-      message.error('获取精选应用失败，' + res.data.message).then(() => {})
-    }
-  } finally {
-    goodLoading.value = false
-  }
-}
-
-const doSearchGood = () => {
-  goodSearch.pageNum = 1
-  fetchGoodApps()
-}
-
-const handleGoodSearchChange = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (!target.value) {
-    doSearchGood()
-  }
-}
-
-const handleGoodPageChange = (page: number) => {
-  goodSearch.pageNum = page
-  fetchGoodApps()
-}
-
-onMounted(() => {
-  fetchMyApps()
-  fetchGoodApps()
-})
 </script>
 
 <style scoped>
@@ -383,54 +270,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-.app-section {
-  margin-bottom: 54px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  margin-bottom: 22px;
-}
-
-.section-title h2 {
-  margin: 0 0 6px;
-  color: #172b4d;
-  font-weight: 800;
-  font-size: 30px;
-  letter-spacing: -0.8px;
-}
-
-.section-tip {
-  color: #8190a5;
-  font-size: 13px;
-}
-
-.section-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.section-search {
-  width: 240px;
-  height: 38px;
-  background: #f7f9fc;
-  border-color: transparent;
-  border-radius: 10px;
-}
-
-.section-search :deep(.ant-input) {
-  background: transparent;
-}
-
-.section-search :deep(.ant-input-prefix) {
-  margin-right: 8px;
-  color: #8da0ba;
-}
-
 .create-button {
   display: inline-flex;
   gap: 6px;
@@ -449,61 +288,10 @@ onMounted(() => {
   background: linear-gradient(105deg, #3b8cff, #7175ff) !important;
 }
 
-.app-grid {
-  display: grid;
-
-  /* 单列宽度上限 440px：应用只有 1~2 个时，卡片不会被拉伸成细长条。
-     列数与列宽由下面的媒体查询接管，容器内没有余量，左边缘始终与标题对齐 */
-  grid-template-columns: repeat(2, minmax(0, 440px));
-  gap: 24px;
-}
-
-.app-empty {
-  padding: 36px 0;
-  background: rgb(255 255 255 / 70%);
-  border: 1px dashed #e2ecf9;
-  border-radius: 18px;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: center;
-  margin-top: 26px;
-}
-
-/* 宽屏：每行 3 列（与设计稿一致），单列最多 440px */
-@media (min-width: 1200px) {
-  .app-grid {
-    grid-template-columns: repeat(3, minmax(0, 440px));
-  }
-}
-
 /* 手机：单列 */
 @media (max-width: 760px) {
-  .app-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .hero-section {
     padding: 10px 0 38px;
-  }
-
-  .section-header {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .section-actions {
-    flex-wrap: wrap;
-  }
-
-  .section-search {
-    flex: 1;
-    width: auto;
-  }
-
-  .section-title h2 {
-    font-size: 24px;
   }
 }
 </style>

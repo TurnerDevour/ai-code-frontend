@@ -160,18 +160,11 @@
                 @press-enter="handlePressEnter"
               />
               <div class="input-toolbar">
-                <span class="toolbar-counter" :class="{ 'is-limit': isInputAtLimit }">
-                  {{ userInput.length }} / {{ CHAT_INPUT_MAX_LENGTH }}
-                </span>
-                <span v-if="canChat" class="toolbar-hint">
-                  <kbd class="hint-key">Enter</kbd>
-                  发送
-                  <span class="hint-divider"></span>
-                  <kbd class="hint-key">Shift</kbd>
-                  +
-                  <kbd class="hint-key">Enter</kbd>
-                  换行
-                </span>
+                <InputHintBar
+                  :length="userInput.length"
+                  :maxlength="CHAT_INPUT_MAX_LENGTH"
+                  :show-hint="canChat"
+                />
                 <!-- 可视化编辑：开关编辑模式，选中元素后发送消息即可让 AI 按元素修改 -->
                 <a-tooltip :title="visualEditTip">
                   <button
@@ -184,15 +177,12 @@
                     <HighlightOutlined />
                   </button>
                 </a-tooltip>
-                <button
-                  type="button"
-                  class="send-button"
+                <SubmitButton
+                  size="sm"
+                  :loading="generating"
                   :disabled="generating || !canChat || !userInput.trim()"
                   @click="handleSend"
-                >
-                  <LoadingOutlined v-if="generating" />
-                  <ArrowUpOutlined v-else />
-                </button>
+                />
               </div>
             </div>
           </a-tooltip>
@@ -294,10 +284,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Modal, message } from 'ant-design-vue'
+import { Modal } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
-  ArrowUpOutlined,
   CloudUploadOutlined,
   DesktopOutlined,
   DownOutlined,
@@ -308,7 +297,6 @@ import {
   EyeOutlined,
   HighlightOutlined,
   HistoryOutlined,
-  LoadingOutlined,
   ProfileOutlined,
   ReloadOutlined,
   SettingOutlined,
@@ -319,7 +307,13 @@ import { listAppChatHistory } from '@/api/chatHistoryController'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
 import DeployStatusTag from '@/components/DeployStatusTag.vue'
+import InputHintBar from '@/components/InputHintBar.vue'
+import SubmitButton from '@/components/SubmitButton.vue'
+import { useAccess } from '@/composables/useAccess'
 import { useAppDeploy } from '@/composables/useAppDeploy'
+import { useEnterSubmit } from '@/composables/useEnterSubmit'
+import { useMarkdownThrottle } from '@/composables/useMarkdownThrottle'
+import { useMessage, showError } from '@/composables/useMessage'
 import { getStaticUrl } from '@/utils/apiUrl'
 import { resolveDeployErrorMessage } from '@/utils/deploy'
 import {
@@ -338,8 +332,6 @@ import {
   formatVisualEditorElement,
 } from '@/utils/visualEditor'
 import type { VisualEditorElement } from '@/utils/visualEditor'
-import { useLoginUserStore } from '@/stores/useLoginUserStore'
-import { ACCESS } from '@/constant/access'
 import {
   CHAT_HISTORY_PAGE_SIZE,
   CHAT_INPUT_MAX_LENGTH,
@@ -362,7 +354,8 @@ interface ChatMessage {
 
 const route = useRoute()
 const router = useRouter()
-const loginUserStore = useLoginUserStore()
+const { isAdmin, isOwner } = useAccess()
+const { success, error, warning, fail } = useMessage()
 /**
  * 生成会话 store：生成请求挂在这里，页面卸载不会中断它
  * （用户点返回后生成继续跑完；刷新/断网回来时用 resumeGeneration 按帧序号续订，零丢失零重复）
@@ -431,48 +424,21 @@ const {
   deployStatus,
   deployStatusValue,
   deploying,
-  inProgress: deployInProgress,
   deployUrl,
   statusTip: deployStatusTip,
   stale: deployStale,
+  disabled: deployDisabled,
+  buttonText: deployButtonText,
   deploy: startDeploy,
   syncStatus: syncDeployStatus,
   stop: stopDeployPolling,
 } = useAppDeploy(appId)
 
-// 部署按钮：仅在"进行中"（排队中/部署中）置灰。
-// 已部署但代码改过（deployStale）时允许重新部署——否则用户改完应用只能一直看旧站点。
-const deployDisabled = computed(
-  () =>
-    deployInProgress.value ||
-    (deployStatusValue.value === DEPLOY_STATUS.READY && !deployStale.value),
-)
-
-// 部署按钮文案：已部署（代码无改动）、代码有更新（重新部署）、上次失败（重试）、未部署
-const deployButtonText = computed(() => {
-  switch (deployStatusValue.value) {
-    case DEPLOY_STATUS.READY:
-      return deployStale.value ? '重新部署' : '已部署'
-    case DEPLOY_STATUS.FAILED:
-      return '重新部署'
-    default:
-      return '部署'
-  }
-})
-
 // 是否为当前用户自己的应用（管理员也视为可管理）
-const isOwner = computed(() => {
-  const loginUserId = loginUserStore.loginUser.id
-  if (!loginUserId || !app.value.userId) {
-    return false
-  }
-  return String(app.value.userId) === String(loginUserId)
-})
+const isAppOwner = computed(() => isOwner(app.value))
 
-// 只有自己的应用才能在对话页发消息
-const canChat = computed(() => {
-  return isOwner.value || loginUserStore.loginUser.userRole === ACCESS.ADMIN
-})
+// 只有自己的应用（或管理员）才能在对话页发消息
+const canChat = computed(() => isAppOwner.value || isAdmin.value)
 
 let messageIdSeed = 0
 
@@ -489,7 +455,7 @@ const visualEditor = createVisualEditor({
     editMode.value = false
     selectedElement.value = null
     editError.value = describeVisualEditorFailure(reason)
-    message.warning(editError.value).then(() => {})
+    warning(editError.value)
   },
   onDocumentReady: () => {
     // 预览刷新后旧元素已不存在，清掉避免展示过期的元素信息
@@ -516,7 +482,7 @@ const visualEditTip = computed(() => {
 // 切换可视化编辑模式
 const toggleEditMode = () => {
   if (!previewUrl.value) {
-    message.warning('请先与 AI 对话生成网站，再进行可视化编辑').then(() => {})
+    warning('请先与 AI 对话生成网站，再进行可视化编辑')
     return
   }
   const next = !editMode.value
@@ -553,37 +519,13 @@ const createMessageIdGenerator = () => {
 }
 
 // 流式输出的分片很密，而 Markdown 解析 + 代码高亮都有成本：
-// 这里按 100ms 节流重渲染，流结束时再立即渲染一次，兼顾实时展示与流畅度
-const MARKDOWN_RENDER_INTERVAL = 100
-const renderTimers = new Map<string, number>()
-
-// 立即渲染（流结束、报错时调用）
-const flushMarkdown = (message: ChatMessage) => {
-  const timer = renderTimers.get(message.id)
-  if (timer !== undefined) {
-    window.clearTimeout(timer)
-    renderTimers.delete(message.id)
-  }
-  message.html = renderMarkdown(message.content)
-}
-
-// 节流渲染（流式追加内容时调用）
-const scheduleMarkdown = (message: ChatMessage) => {
-  if (renderTimers.has(message.id)) {
-    return
-  }
-  const timer = window.setTimeout(() => {
-    renderTimers.delete(message.id)
-    message.html = renderMarkdown(message.content)
-  }, MARKDOWN_RENDER_INTERVAL)
-  renderTimers.set(message.id, timer)
-}
-
-// 切换应用、离开页面时清掉还没触发的定时器
-const clearMarkdownTimers = () => {
-  renderTimers.forEach((timer) => window.clearTimeout(timer))
-  renderTimers.clear()
-}
+// 这里按 100ms 节流重渲染，流结束时再立即渲染一次，兼顾实时展示与流畅度。
+// 节流与定时器清理都收在 useMarkdownThrottle 中，切换应用 / 卸载时调用 clear()
+const {
+  flush: flushMarkdown,
+  schedule: scheduleMarkdown,
+  clear: clearMarkdownTimers,
+} = useMarkdownThrottle(renderMarkdown)
 
 // 生成预览地址：{VITE_APP_PREVIEW_BASE_URL}/{codeGenType}_{appId}/（见 utils/apiUrl.ts）
 // codeGenType 取自应用详情（app.codeGenType，如 multi_file / html）
@@ -608,7 +550,7 @@ const fetchApp = async () => {
   if (res.data.code === 0 && res.data.data) {
     app.value = res.data.data
   } else {
-    message.error('获取应用信息失败，' + res.data.message).then(() => {})
+    fail('获取应用信息失败', res.data)
   }
 }
 
@@ -649,7 +591,7 @@ const loadHistory = async (loadMore = false) => {
       },
     )
     if (res.data.code !== 0 || !res.data.data) {
-      message.error('获取对话历史失败，' + res.data.message).then(() => {})
+      fail('获取对话历史失败', res.data)
       return
     }
     const historyPage = res.data.data
@@ -745,15 +687,25 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
   const targetAppId = appId.value
   void (async () => {
     let buildStatus = ''
+    // 服务端是否已经没有这个应用的生成任务（后端重启后注册表清空、或这一轮早就结束了）
+    let noTask = false
     try {
       const res = await getGenStatus({ appId: targetAppId })
       buildStatus = res.data?.data?.buildStatus ?? ''
+      noTask = res.data?.data?.status === 'none'
     } catch {
       // 状态接口偶发失败不应阻塞预览：按"尚未完成"处理，下一轮继续查
       buildStatus = ''
     }
     // 轮询期间用户切换了应用或又发起了一轮生成：放弃本次刷新
     if (token !== previewRefreshToken || targetAppId !== appId.value) {
+      return
+    }
+    // 服务端没有任务 = 没有任何东西在构建，等待毫无意义：直接刷新预览。
+    // 否则会一直按 PREVIEW_BUILD_POLL_INTERVAL 轮询到上限（实测：后端日志里
+    // SELECT user / SELECT app 两条 SQL 持续刷屏，而预览区一直空白）。
+    if (noTask) {
+      refreshPreview()
       return
     }
     if (buildStatus === BUILD_STATUS.FINISHED || buildStatus === BUILD_STATUS.FAILED) {
@@ -777,6 +729,21 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
 const schedulePreviewRefresh = () => {
   stopPreviewRefreshPolling()
   refreshPreviewAfterGeneration()
+}
+
+/**
+ * 一轮生成结束后的收尾编排：刷新预览 + 重新读取部署状态
+ * <p>
+ * 为什么必须重新读部署状态：部署按钮的可用性取决于后端的 {@code deployStale}
+ * （"代码改过、线上还是旧内容"）。这个值只在进入页面时取过一次，
+ * 于是"先部署 → 再用 AI 改代码"之后，页面里仍然缓存着 {@code deployStale=false}，
+ * 按钮会一直是灰的「已部署」，用户根本点不动——就是"改完内容无法二次部署"。
+ * 生成结束时后端已经把 edit_time 落库（见 GenerationTaskRegistry#finish 的顺序），
+ * 这里同步一次就能把按钮切成「重新部署」。
+ */
+const afterGenerationFinished = () => {
+  schedulePreviewRefresh()
+  void syncDeployStatus()
 }
 
 /**
@@ -844,13 +811,17 @@ const watchGenerationSession = (
             target.errorMessage = session.errorMessage || '生成失败，请重试'
             flushMarkdown(target)
           })
-          message.error('生成失败：' + (session.errorMessage || '请重试')).then(() => {})
+          error('生成失败：' + (session.errorMessage || '请重试'))
         }
         generating.value = false
         if (!detached) {
           detached = true
           stopWatch()
-          stopPreviewRefreshPolling()
+          // 这一轮失败 ≠ 之前生成的网站不存在：仍然走一次「刷新预览」编排。
+          // 服务端已经没有任务时会立刻返回终态（一次请求），不会造成空转轮询；
+          // 若确实还有构建在跑，则会等它结束再刷新。否则用户点进应用只能看到空白预览，
+          // 必须手动点「刷新预览」才看得到已经做好的网站。
+          hooks.onFinished?.()
         }
         return
       }
@@ -920,7 +891,7 @@ const genCode = async (prompt: string) => {
     return
   }
   activeGenerationWatch = watchGenerationSession(session, aiMessageId, {
-    onFinished: () => schedulePreviewRefresh(),
+    onFinished: () => afterGenerationFinished(),
   })
 }
 
@@ -989,7 +960,7 @@ const recoverSessionMessage = () => {
     // 续订中：内容会继续在 store 里累积，订阅它继续渲染
     activeGenerationWatch?.()
     activeGenerationWatch = watchGenerationSession(current, messageId, {
-      onFinished: () => schedulePreviewRefresh(),
+      onFinished: () => afterGenerationFinished(),
     })
   } else if (!generating.value) {
     // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
@@ -998,13 +969,10 @@ const recoverSessionMessage = () => {
   return true
 }
 
-// 是否已达到输入上限（达到后计数器转为警示色，与首页输入框一致）
-const isInputAtLimit = computed(() => userInput.value.length >= CHAT_INPUT_MAX_LENGTH)
-
 // 发送用户消息
 const handleSend = async () => {
   if (!canChat.value) {
-    message.warning('无法在别人的作品下对话哦~').then(() => {})
+    warning('无法在别人的作品下对话哦~')
     return
   }
   const prompt = userInput.value.trim()
@@ -1028,15 +996,8 @@ const handleSend = async () => {
   await genCode(finalPrompt)
 }
 
-// 回车发送、Shift + 回车换行（与首页输入框保持一致）
-// 输入法组合期间的回车用于确认候选词，此时不发送
-const handlePressEnter = (event: KeyboardEvent) => {
-  if (event.shiftKey || event.isComposing) {
-    return
-  }
-  event.preventDefault()
-  handleSend()
-}
+// 回车发送、Shift + 回车换行、输入法组合期间不发送（与首页输入框共用同一套规则）
+const { handlePressEnter } = useEnterSubmit(handleSend)
 
 // 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
 // 用户主动刷新时（菜单/按钮）先停掉自动轮询，避免和用户操作互相打断
@@ -1070,9 +1031,9 @@ const handleDeploy = async () => {
     onOk: async () => {
       try {
         await startDeploy()
-      } catch (error) {
+      } catch (cause) {
         // 队列已满（code=50000）等业务错误：优先展示后端下发的 message
-        message.error(resolveDeployErrorMessage(error)).then(() => {})
+        showError(resolveDeployErrorMessage(cause))
       }
     },
   })
@@ -1098,7 +1059,7 @@ const handleDownload = async () => {
     // 后端异常时状态码仍是 200，响应体却是 JSON 格式的 BaseResponse，需要先识别出来
     const errorMessage = await parseResponseErrorMessage(res.data)
     if (errorMessage) {
-      message.error('下载失败，' + errorMessage).then(() => {})
+      error('下载失败，' + errorMessage)
       return
     }
     // 文件名以 Content-Disposition 为准（后端为 {appId}.zip），解析失败时用应用名兜底
@@ -1107,15 +1068,13 @@ const handleDownload = async () => {
       `${app.value.appName || appId.value}.zip`,
     )
     saveBlobAsFile(res.data, fileName)
-    message.success('代码下载成功').then(() => {})
+    success('代码下载成功')
   } catch (error) {
     // 非 2xx 时 axios 抛出异常，错误响应体同样是 Blob，需要解析后展示
     const reason = await parseResponseErrorMessage(
       (error as { response?: { data?: unknown } })?.response?.data,
     )
-    message
-      .error('下载失败，' + (reason || (error as Error)?.message || '请稍后重试'))
-      .then(() => {})
+    showError('下载失败，' + (reason || (error as Error)?.message || '请稍后重试'))
   } finally {
     downloading.value = false
   }
@@ -1130,7 +1089,7 @@ const openRenameModal = () => {
 const handleRename = async () => {
   const name = renameValue.value.trim()
   if (!name) {
-    message.warning('请输入应用名称').then(() => {})
+    warning('请输入应用名称')
     return
   }
   renaming.value = true
@@ -1139,9 +1098,9 @@ const handleRename = async () => {
     if (res.data.code === 0) {
       app.value = { ...app.value, appName: name }
       renameModalOpen.value = false
-      message.success('修改成功').then(() => {})
+      success('修改成功')
     } else {
-      message.error('修改失败，' + res.data.message).then(() => {})
+      fail('修改失败', res.data)
     }
   } finally {
     renaming.value = false
@@ -1177,10 +1136,10 @@ const handleDetailDelete = async () => {
     const res = await deleteApp({ id: appId.value })
     if (res.data.code === 0) {
       detailModalOpen.value = false
-      message.success('删除成功').then(() => {})
+      success('删除成功')
       await router.replace('/')
     } else {
-      message.error('删除失败，' + res.data.message).then(() => {})
+      fail('删除失败', res.data)
     }
   } finally {
     deleting.value = false
@@ -1209,7 +1168,7 @@ const initPage = async () => {
     return
   }
   // 只有自己的应用、且确已加载过对话历史并确认没有历史时，才把初始提示词作为第一条消息触发对话
-  if (isOwner.value && historyLoaded.value && historyTotal.value === 0 && initPrompt.trim()) {
+  if (isAppOwner.value && historyLoaded.value && historyTotal.value === 0 && initPrompt.trim()) {
     userInput.value = initPrompt.trim()
     // 走 handleSend 以便把用户消息也展示在对话里
     await handleSend()
@@ -1964,7 +1923,7 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.input-card.is-readonly .send-button:disabled {
+.input-card.is-readonly :deep(.submit-icon-button:disabled) {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -1999,47 +1958,8 @@ onBeforeUnmount(() => {
   margin-top: 8px;
 }
 
-/* ---- 输入框工具条：字数 / 快捷键（样式与首页输入框一致） ---- */
-.toolbar-counter {
-  color: #a3b1c4;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.toolbar-counter.is-limit {
-  color: #e85d75;
-  font-weight: 600;
-}
-
-.toolbar-hint {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  color: #a3b1c4;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.hint-key {
-  padding: 1px 6px;
-  color: #7a8ba6;
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 16px;
-  background: #f7f9fc;
-  border: 1px solid #eaf0f9;
-  border-radius: 5px;
-}
-
-.hint-divider {
-  width: 1px;
-  height: 12px;
-  margin: 0 5px;
-  background: #e4ebf5;
-}
-
-/* ---- 可视化编辑按钮：位于发送按钮左侧，开启后转为品牌渐变实心 ---- */
+/* ---- 可视化编辑按钮：位于发送按钮左侧，开启后转为品牌渐变实心 ----
+   字数计数与快捷键提示由 InputHintBar 渲染，发送按钮由 SubmitButton 渲染 */
 .visual-edit-button {
   display: grid;
   flex: 0 0 36px;
@@ -2075,26 +1995,6 @@ onBeforeUnmount(() => {
 }
 
 .visual-edit-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.send-button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  color: #fff;
-  font-size: 16px;
-  border: 0;
-  border-radius: 50%;
-  place-items: center;
-  cursor: pointer;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 8px 16px rgb(54 103 210 / 26%);
-  transition: opacity 0.2s ease;
-}
-
-.send-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -2286,11 +2186,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  /* 窄屏下隐藏快捷键提示，把空间留给字数与发送按钮（与首页输入框一致） */
-  .toolbar-hint {
-    display: none;
-  }
-
   .chat-header {
     padding: 0 12px;
   }

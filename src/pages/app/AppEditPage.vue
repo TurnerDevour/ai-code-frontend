@@ -10,7 +10,7 @@
     />
 
     <a-spin :spinning="loading">
-      <section class="form-panel">
+      <FormPanel>
         <a-form
           :model="formState"
           :label-col="{ span: 4 }"
@@ -71,7 +71,7 @@
             </a-space>
           </a-form-item>
         </a-form>
-      </section>
+      </FormPanel>
     </a-spin>
   </div>
 </template>
@@ -79,24 +79,23 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
 import { PictureOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { getAppVoById, getAppVoByIdByAdmin, updateApp, updateAppByAdmin } from '@/api/appController'
-import { useLoginUserStore } from '@/stores/useLoginUserStore'
+import FormPanel from '@/components/FormPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { ACCESS } from '@/constant/access'
+import { useAccess } from '@/composables/useAccess'
+import { useMessage } from '@/composables/useMessage'
 import { APP_PRIORITY_OPTIONS, GOOD_APP_PRIORITY } from '@/constant/app'
 
 const route = useRoute()
 const router = useRouter()
-const loginUserStore = useLoginUserStore()
+const { isAdmin, canManage } = useAccess()
+const { success, error, warning, fail } = useMessage()
 
 const appId = computed(() => String(route.params.id ?? ''))
 const loading = ref(false)
 const submitting = ref(false)
 const app = ref<API.AppVO>({})
-
-const isAdmin = computed(() => loginUserStore.loginUser.userRole === ACCESS.ADMIN)
 
 const formState = reactive<{
   appName: string
@@ -130,10 +129,9 @@ const fetchApp = async () => {
       : await getAppVoById({ id: appId.value })
     if (res.data.code === 0 && res.data.data) {
       app.value = res.data.data
-      const loginUserId = loginUserStore.loginUser.id
       // 普通用户只能编辑自己的应用
-      if (!isAdmin.value && String(app.value.userId) !== String(loginUserId)) {
-        message.error('没有权限修改该应用').then(() => {})
+      if (!canManage(app.value)) {
+        error('没有权限修改该应用')
         await router.replace('/')
         return
       }
@@ -141,7 +139,7 @@ const fetchApp = async () => {
       formState.cover = app.value.cover ?? ''
       formState.priority = app.value.priority ?? 0
     } else {
-      message.error('获取应用信息失败，' + res.data.message).then(() => {})
+      fail('获取应用信息失败', res.data)
     }
   } finally {
     loading.value = false
@@ -150,7 +148,7 @@ const fetchApp = async () => {
 
 const handleSubmit = async () => {
   if (!formState.appName.trim()) {
-    message.warning('请输入应用名称').then(() => {})
+    warning('请输入应用名称')
     return
   }
   submitting.value = true
@@ -164,10 +162,10 @@ const handleSubmit = async () => {
         })
       : await updateApp({ id: appId.value, appName: formState.appName })
     if (res.data.code === 0) {
-      message.success('保存成功').then(() => {})
+      success('保存成功')
       handleBack()
     } else {
-      message.error('保存失败，' + res.data.message).then(() => {})
+      fail('保存失败', res.data)
     }
   } finally {
     submitting.value = false
@@ -192,38 +190,6 @@ onMounted(() => {
   position: relative;
   max-width: 900px;
   margin: 0 auto;
-}
-
-.form-panel {
-  padding: 32px 28px 12px;
-  background: rgb(255 255 255 / 90%);
-  border: 1px solid #edf2fa;
-  border-radius: 18px;
-  box-shadow: 0 12px 36px rgb(31 73 125 / 7%);
-}
-
-.form-panel :deep(.ant-form-item-label > label) {
-  color: #5e6f88;
-  font-size: 13px;
-}
-
-.form-panel :deep(.ant-input),
-.form-panel :deep(.ant-input-affix-wrapper),
-.form-panel :deep(.ant-select .ant-select-selector) {
-  background: #f7f9fc;
-  border-color: transparent;
-  border-radius: 10px;
-}
-
-.form-panel :deep(.ant-input:hover),
-.form-panel :deep(.ant-input-affix-wrapper:hover),
-.form-panel :deep(.ant-input:focus),
-.form-panel :deep(.ant-input-affix-wrapper-focused),
-.form-panel :deep(.ant-select:not(.ant-select-disabled):hover .ant-select-selector),
-.form-panel :deep(.ant-select-focused .ant-select-selector) {
-  background: #fff;
-  border-color: #91caff;
-  box-shadow: 0 0 0 3px rgb(22 119 255 / 10%);
 }
 
 .cover-preview {
@@ -283,36 +249,13 @@ onMounted(() => {
 }
 
 @media (max-width: 760px) {
-  .form-panel {
-    padding: 24px 16px 8px;
-  }
-
   .field-tip {
     display: block;
     margin: 8px 0 0;
   }
 }
 
-/* 手机宽度：标签改为每行独占，表单控件铺满整行。
-   否则固定 4/18 的栅格会把输入框压到小于 antd 的固有最小宽度，
-   内容被右侧裁掉（antd 的 .ant-col-* 优先级更高，需要 !important）。 */
 @media (max-width: 640px) {
-  .app-edit-page :deep(.ant-form-item-label),
-  .app-edit-page :deep(.ant-form-item-control) {
-    flex: 0 0 100% !important;
-    max-width: 100% !important;
-    margin-left: 0 !important;
-  }
-
-  .app-edit-page :deep(.ant-form-item-label) {
-    padding-bottom: 4px;
-    text-align: left;
-  }
-
-  .app-edit-page :deep(.ant-form-item-row) {
-    flex-wrap: wrap;
-  }
-
   .priority-select {
     width: 100%;
   }

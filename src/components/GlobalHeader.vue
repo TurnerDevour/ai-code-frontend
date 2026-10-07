@@ -57,7 +57,6 @@
 import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MenuProps } from 'ant-design-vue'
-import { message } from 'ant-design-vue'
 import {
   UserOutlined,
   HomeOutlined,
@@ -68,10 +67,12 @@ import {
 } from '@ant-design/icons-vue'
 import { ACCESS } from '@/constant/access.ts'
 import { useLoginUserStore } from '@/stores/useLoginUserStore.ts'
+import { useMessage } from '@/composables/useMessage'
 import { userLogout } from '@/api/userController.ts'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
+const { success, fail } = useMessage()
 
 const handleMenuClick: MenuProps['onClick'] = (info) => {
   const key = String(info.key)
@@ -141,10 +142,10 @@ const doLogout = async () => {
     loginUserStore.setLoginUser({
       username: '未登录',
     })
-    message.success('退出登录成功').then(() => {})
+    success('退出登录成功')
     await router.push('/user/login')
   } else {
-    message.error('退出登录失败，' + res.data.message).then(() => {})
+    fail('退出登录失败', res.data)
   }
 }
 

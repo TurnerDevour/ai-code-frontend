@@ -257,6 +257,13 @@ export const useGenerationStore = defineStore('generation', () => {
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_EXECUTED) {
+      // 工具调用失败（参数不是合法 JSON / 工具名不存在 / 工具内部异常）时后端照样会下发
+      // tool_executed，但**文件并没有写入**。必须显式展示失败，否则用户会以为改写成功了。
+      if (message.failed) {
+        const reason = message.result || '工具未执行'
+        session.content += `\n\n> ⚠️ [工具调用失败] ${message.name}：${reason}\n\n`
+        return
+      }
       const file = parseToolArguments(message.arguments)
       if (!file) {
         return

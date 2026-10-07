@@ -1,12 +1,14 @@
 <template>
-  <a-tag class="model-tag" :bordered="false">
-    <ThunderboltOutlined v-if="showIcon" class="tag-icon" />
-    {{ getAiModelTypeName(aiModelType) }}
-  </a-tag>
+  <PillTag
+    tone="violet"
+    :icon="showIcon ? ThunderboltOutlined : undefined"
+    :label="getAiModelTypeName(aiModelType)"
+  />
 </template>
 
 <script setup lang="ts">
 import { ThunderboltOutlined } from '@ant-design/icons-vue'
+import PillTag from '@/components/PillTag.vue'
 import { getAiModelTypeName } from '@/constant/aiModelType'
 
 withDefaults(
@@ -21,25 +23,3 @@ withDefaults(
   },
 )
 </script>
-
-<style scoped>
-.model-tag {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  margin: 0;
-  padding: 2px 10px;
-  color: #7c3aed;
-  font-weight: 600;
-  font-size: 12px;
-  border: 0;
-  border-radius: 999px;
-  background: #f3ecff;
-  box-shadow: inset 0 0 0 1px #e4d8ff;
-}
-
-.tag-icon {
-  font-size: 11px;
-  opacity: 0.85;
-}
-</style>

@@ -1,5 +1,7 @@
 // 代码生成类型常量（与后端 CodeGenTypeEnum 枚举保持一致）
 
+import { createEnumNameGetter } from '@/utils/enumOptions'
+
 /** 代码生成类型枚举值 */
 export const CODE_GEN_TYPE = {
   /** 原生 HTML 模式 */
@@ -20,19 +22,5 @@ export const CODE_GEN_TYPE_OPTIONS: { label: string; value: CodeGenType }[] = [
   { label: 'Vue 模式', value: CODE_GEN_TYPE.VUE_PROJECT },
 ]
 
-/** 代码生成类型名称映射：值 -> 中文名称 */
-export const CODE_GEN_TYPE_NAME_MAP = CODE_GEN_TYPE_OPTIONS.reduce<Record<string, string>>(
-  (map, option) => {
-    map[option.value] = option.label
-    return map
-  },
-  {},
-)
-
 /** 获取代码生成类型的中文名称，未知类型原样返回，空值返回 - */
-export const getCodeGenTypeName = (codeGenType?: string) => {
-  if (!codeGenType) {
-    return '-'
-  }
-  return CODE_GEN_TYPE_NAME_MAP[codeGenType] ?? codeGenType
-}
+export const getCodeGenTypeName = createEnumNameGetter(CODE_GEN_TYPE_OPTIONS)

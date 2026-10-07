@@ -82,27 +82,12 @@
       </div>
 
       <div class="toolbar-actions">
-        <span class="toolbar-counter" :class="{ 'is-limit': isAtLimit }">
-          {{ value.length }} / {{ CHAT_INPUT_MAX_LENGTH }}
-        </span>
-        <span class="toolbar-hint">
-          <kbd class="hint-key">Enter</kbd>
-          发送
-          <span class="hint-divider"></span>
-          <kbd class="hint-key">Shift</kbd>
-          +
-          <kbd class="hint-key">Enter</kbd>
-          换行
-        </span>
-        <button
-          type="button"
-          class="submit-button"
+        <InputHintBar :length="value.length" :maxlength="maxlength" hide-hint-on-mobile />
+        <SubmitButton
+          :loading="loading"
           :disabled="loading || !value.trim()"
           @click="handleSubmit"
-        >
-          <LoadingOutlined v-if="loading" />
-          <ArrowUpOutlined v-else />
-        </button>
+        />
       </div>
     </div>
   </div>
@@ -110,23 +95,23 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { message } from 'ant-design-vue'
 import {
-  ArrowUpOutlined,
   BulbOutlined,
   CodeOutlined,
   FileTextOutlined,
   LayoutOutlined,
-  LoadingOutlined,
   RocketOutlined,
   StarOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons-vue'
+import InputHintBar from '@/components/InputHintBar.vue'
+import SubmitButton from '@/components/SubmitButton.vue'
+import { useEnterSubmit } from '@/composables/useEnterSubmit'
+import { useMessage } from '@/composables/useMessage'
 import { CODE_GEN_TYPE, CODE_GEN_TYPE_OPTIONS } from '@/constant/codeGenType'
 import type { CodeGenType } from '@/constant/codeGenType'
 import { AI_MODEL_TYPE, AI_MODEL_TYPE_OPTIONS } from '@/constant/aiModelType'
 import type { AiModelType } from '@/constant/aiModelType'
-import { CHAT_INPUT_MAX_LENGTH } from '@/constant/chat.ts'
 
 /** 每个选项配一个图标，让下拉列表更易扫读 */
 const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
@@ -138,6 +123,8 @@ const AI_MODEL_TYPE_ICONS: Record<string, unknown> = {
   [AI_MODEL_TYPE.DEEPSEEK_FLASH]: ThunderboltOutlined,
   [AI_MODEL_TYPE.DEEPSEEK_V4_PRO]: RocketOutlined,
 }
+
+const { warning } = useMessage()
 
 const props = withDefaults(
   defineProps<{
@@ -202,12 +189,10 @@ const cardRef = ref<HTMLElement | null>(null)
 // 下拉浮层挂到卡片内部，避免浮层独立挂载在 body 上时脱离视觉上下文
 const getPopupContainer = () => cardRef.value ?? document.body
 
-const isAtLimit = computed(() => value.value.length >= props.maxlength)
-
 const handleSubmit = () => {
   const current = value.value.trim()
   if (!current) {
-    message.warning('请输入应用描述').then(() => {})
+    warning('请输入应用描述')
     return
   }
   emit('submit', current, {
@@ -224,15 +209,8 @@ const handlePreset = (preset: string) => {
   })
 }
 
-const handlePressEnter = (event: KeyboardEvent) => {
-  // 回车提交、Shift + 回车换行（与对话页输入框一致）
-  // 输入法组合期间的回车用于确认候选词，此时不提交
-  if (event.shiftKey || event.isComposing) {
-    return
-  }
-  event.preventDefault()
-  handleSubmit()
-}
+// 回车提交、Shift + 回车换行、输入法组合期间不提交（与对话页输入框共用同一套规则）
+const { handlePressEnter } = useEnterSubmit(handleSubmit)
 </script>
 
 <style scoped>
@@ -500,7 +478,9 @@ const handlePressEnter = (event: KeyboardEvent) => {
   box-shadow: 0 0 0 3px rgb(22 119 255 / 9%) !important;
 }
 
-/* ---- 右侧：字数 / 快捷键 / 发送 ---- */
+/* ---- 右侧：字数 / 快捷键 / 发送 ----
+   字数计数与快捷键提示由 InputHintBar 渲染，发送按钮由 SubmitButton 渲染，
+   两者与对话页输入框共用同一套实现 */
 .toolbar-actions {
   display: flex;
   flex: 1;
@@ -508,75 +488,6 @@ const handlePressEnter = (event: KeyboardEvent) => {
   align-items: center;
   gap: 12px;
   min-width: 0;
-}
-
-.toolbar-counter {
-  color: #a3b1c4;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.toolbar-counter.is-limit {
-  color: #e85d75;
-  font-weight: 600;
-}
-
-.toolbar-hint {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  color: #a3b1c4;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.hint-key {
-  padding: 1px 6px;
-  color: #7a8ba6;
-  font-family: inherit;
-  font-size: 11px;
-  line-height: 16px;
-  background: #f7f9fc;
-  border: 1px solid #eaf0f9;
-  border-radius: 5px;
-}
-
-.hint-divider {
-  width: 1px;
-  height: 12px;
-  margin: 0 5px;
-  background: #e4ebf5;
-}
-
-.submit-button {
-  display: grid;
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  color: #fff;
-  font-size: 17px;
-  border: 0;
-  border-radius: 50%;
-  place-items: center;
-  cursor: pointer;
-  background: linear-gradient(135deg, #1677ff, #6d5dfc);
-  box-shadow: 0 8px 18px rgb(54 103 210 / 28%);
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.submit-button:hover:not(:disabled) {
-  box-shadow: 0 10px 22px rgb(54 103 210 / 34%);
-  transform: translateY(-1px);
-}
-
-.submit-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-  box-shadow: none;
 }
 
 /* 生成中：卡片整体弱化交互提示 */
@@ -626,10 +537,6 @@ const handlePressEnter = (event: KeyboardEvent) => {
 
   .toolbar-config {
     flex: 1 1 100%;
-  }
-
-  .toolbar-hint {
-    display: none;
   }
 
   .prompt-presets {

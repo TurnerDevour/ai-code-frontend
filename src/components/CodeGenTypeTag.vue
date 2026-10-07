@@ -1,12 +1,14 @@
 <template>
-  <a-tag class="type-tag" :bordered="false">
-    <CodeOutlined v-if="showIcon" class="tag-icon" />
-    {{ getCodeGenTypeName(codeGenType) }}
-  </a-tag>
+  <PillTag
+    tone="blue"
+    :icon="showIcon ? CodeOutlined : undefined"
+    :label="getCodeGenTypeName(codeGenType)"
+  />
 </template>
 
 <script setup lang="ts">
 import { CodeOutlined } from '@ant-design/icons-vue'
+import PillTag from '@/components/PillTag.vue'
 import { getCodeGenTypeName } from '@/constant/codeGenType'
 
 withDefaults(
@@ -21,25 +23,3 @@ withDefaults(
   },
 )
 </script>
-
-<style scoped>
-.type-tag {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  margin: 0;
-  padding: 2px 10px;
-  color: #1677ff;
-  font-weight: 600;
-  font-size: 12px;
-  border: 0;
-  border-radius: 999px;
-  background: #eaf3ff;
-  box-shadow: inset 0 0 0 1px #d8e8ff;
-}
-
-.tag-icon {
-  font-size: 11px;
-  opacity: 0.85;
-}
-</style>

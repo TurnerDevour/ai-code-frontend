@@ -34,6 +34,15 @@ export interface UseAppDeployReturn {
   statusTip: ComputedRef<string>
   /** 已部署的产物是否落后于当前代码（true 表示代码改过、可重新部署） */
   stale: ComputedRef<boolean>
+  /**
+   * 部署按钮是否置灰
+   * <p>
+   * 仅在「进行中」（排队中 / 部署中）以及「已部署且代码没有改动」时置灰：
+   * 代码改过时必须允许重新部署，否则用户改完应用只能一直看旧站点。
+   */
+  disabled: ComputedRef<boolean>
+  /** 部署按钮文案：部署 / 已部署 / 重新部署 */
+  buttonText: ComputedRef<string>
   /** 提交异步部署并按需轮询；提交失败时抛出异常，由调用方提示 */
   deploy: () => Promise<void>
   /** 进入应用详情时同步一次状态：仍在排队 / 构建中则自动恢复轮询 */
@@ -61,11 +70,35 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
   let pollGeneration = 0
 
   const deploying = computed(() => submitting.value || polling.value)
-  const deployStatusValue = computed<DeployStatus | undefined>(() => deployStatus.value?.status as DeployStatus | undefined)
+  const deployStatusValue = computed<DeployStatus | undefined>(
+    () => deployStatus.value?.status as DeployStatus | undefined,
+  )
   const inProgress = computed(() => isDeployInProgress(deployStatus.value?.status))
   const deployUrl = computed(() => deployStatus.value?.deployUrl ?? '')
   const statusTip = computed(() => describeDeployStatus(deployStatus.value))
   const stale = computed(() => isDeployStale(deployStatus.value))
+
+  /**
+   * 部署按钮是否置灰
+   * <p>
+   * 只在「进行中」以及「已部署且代码没有改动」时置灰；代码改过（stale）时允许重新部署，
+   * 否则「先部署 -> 再用 AI 改代码」之后按钮会一直是灰的「已部署」，用户点不动。
+   */
+  const disabled = computed(
+    () => inProgress.value || (deployStatusValue.value === DEPLOY_STATUS.READY && !stale.value),
+  )
+
+  /** 部署按钮文案：已部署（代码无改动）、重新部署（代码有更新 / 上次失败）、部署（未部署） */
+  const buttonText = computed(() => {
+    switch (deployStatusValue.value) {
+      case DEPLOY_STATUS.READY:
+        return stale.value ? '重新部署' : '已部署'
+      case DEPLOY_STATUS.FAILED:
+        return '重新部署'
+      default:
+        return '部署'
+    }
+  })
 
   // 切换应用后旧应用的状态与轮询都不再适用
   watch(appId, () => {
@@ -258,6 +291,8 @@ export const useAppDeploy = (appId: Ref<string>): UseAppDeployReturn => {
     deployUrl,
     statusTip,
     stale,
+    disabled,
+    buttonText,
     deploy,
     syncStatus,
     stop,

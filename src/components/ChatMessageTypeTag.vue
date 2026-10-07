@@ -1,15 +1,16 @@
 <template>
-  <a-tag class="message-type-tag" :class="typeClass" :bordered="false">
-    <UserOutlined v-if="messageType === CHAT_MESSAGE_TYPE.USER" />
-    <RobotOutlined v-else-if="messageType === CHAT_MESSAGE_TYPE.AI" />
-    <WarningOutlined v-else />
-    {{ getChatMessageTypeName(messageType) }}
-  </a-tag>
+  <PillTag
+    :tone="meta.tone"
+    :icon="meta.icon"
+    :label="getChatMessageTypeName(messageType)"
+    :min-width="84"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import { RobotOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons-vue'
+import PillTag, { type PillTagTone } from '@/components/PillTag.vue'
 import { CHAT_MESSAGE_TYPE, getChatMessageTypeName } from '@/constant/chat'
 
 const props = defineProps<{
@@ -17,49 +18,19 @@ const props = defineProps<{
   messageType?: string
 }>()
 
+/** 各消息类型对应的色板与图标 */
+const MESSAGE_TYPE_META: Record<string, { tone: PillTagTone; icon: Component }> = {
+  [CHAT_MESSAGE_TYPE.USER]: { tone: 'blue', icon: UserOutlined },
+  [CHAT_MESSAGE_TYPE.AI]: { tone: 'teal', icon: RobotOutlined },
+  [CHAT_MESSAGE_TYPE.ERROR]: { tone: 'rose', icon: WarningOutlined },
+}
+
 // 未知类型统一走默认样式
-const typeClass = computed(() => {
-  const messageType = props.messageType
-  const knownTypes: string[] = Object.values(CHAT_MESSAGE_TYPE)
-  return messageType && knownTypes.includes(messageType) ? `is-${messageType}` : 'is-unknown'
-})
+const meta = computed(
+  () =>
+    MESSAGE_TYPE_META[props.messageType ?? ''] ?? {
+      tone: 'slate' as PillTagTone,
+      icon: WarningOutlined,
+    },
+)
 </script>
-
-<style scoped>
-.message-type-tag {
-  display: inline-flex;
-  gap: 5px;
-  justify-content: center;
-  align-items: center;
-  min-width: 84px;
-  margin: 0;
-  padding: 3px 10px;
-  font-weight: 600;
-  font-size: 12px;
-  border-radius: 999px;
-}
-
-.is-user {
-  color: #1677ff;
-  background: #eaf3ff;
-  box-shadow: inset 0 0 0 1px #d8e8ff;
-}
-
-.is-ai {
-  color: #0f766e;
-  background: #e8faf4;
-  box-shadow: inset 0 0 0 1px #c3ece1;
-}
-
-.is-error {
-  color: #e85d75;
-  background: #fff2f4;
-  box-shadow: inset 0 0 0 1px #ffd8df;
-}
-
-.is-unknown {
-  color: #64748b;
-  background: #f5f8fd;
-  box-shadow: inset 0 0 0 1px #e2eaf5;
-}
-</style>
