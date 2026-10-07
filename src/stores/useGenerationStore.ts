@@ -280,10 +280,24 @@ export const useGenerationStore = defineStore('generation', () => {
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
-      session.content += '\n\n> [🔧 选择工具] 写入文件\n\n'
+      // 展示文案由后端按工具声明下发（[🔧 选择工具] 修改文件内容 / 写入文件内容 …）；
+      // 旧帧没有 display 时退回工具英文名，不再硬编码成"写入文件"
+      session.content += `\n\n> ${message.display || `[🔧 选择工具] ${message.name}`}\n\n`
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_EXECUTED) {
+      const file = parseToolArguments(message.arguments)
+      if (file) {
+        session.toolExecutions.push(file)
+      }
+      // 优先渲染后端给的展示文本：工具自己最清楚参数结构，
+      // 写入工具是"文件内容"、修改工具是"修改前后对比"、失败时是失败原因。
+      // 前端按工具名猜参数结构会把 modifyFile 渲染成"写入文件 + 空代码块"（实测问题：写文件输出空白）
+      if (message.display) {
+        session.content += `\n\n${message.display}\n\n`
+        return
+      }
+      // 以下都是兼容旧帧（没有 display）的兜底：
       // 工具调用失败（参数不是合法 JSON / 工具名不存在 / 工具内部异常）时后端照样会下发
       // tool_executed，但**文件并没有写入**。必须显式展示失败，否则用户会以为改写成功了。
       if (message.failed) {
@@ -291,13 +305,14 @@ export const useGenerationStore = defineStore('generation', () => {
         session.content += `\n\n> ⚠️ [工具调用失败] ${message.name}：${reason}\n\n`
         return
       }
-      const file = parseToolArguments(message.arguments)
-      if (!file) {
+      // 解析不出内容时只显示一行工具名，绝不渲染一个空代码块
+      if (!file || !file.content) {
+        const target = file?.relativePath ? ` ${file.relativePath}` : ''
+        session.content += `\n\n> [🔧 工具调用] ${message.name}${target}\n\n`
         return
       }
       const suffix = file.relativePath.split('.').pop() ?? ''
       const fence = suffix && suffix !== file.relativePath ? suffix : 'text'
-      session.toolExecutions.push(file)
       session.content += `\n\n[🔧 工具调用] 写入文件 ${file.relativePath}\n\n\`\`\`${fence}\n${file.content}\n\`\`\`\n\n`
       return
     }

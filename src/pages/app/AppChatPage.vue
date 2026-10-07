@@ -77,35 +77,6 @@
     <div class="chat-body">
       <!-- 左侧对话区域 -->
       <section class="chat-panel">
-        <!--
-          AI 思考过程：固定在对话区顶部（消息列表之上），生成过程中实时追加。
-          收起/展开状态记在 localStorage 里，避免每次进页面都要重新收一遍。
-        -->
-        <div
-          v-if="displayedThinking"
-          class="thinking-panel"
-          :class="{ 'is-collapsed': thinkingCollapsed }"
-        >
-          <button type="button" class="thinking-header" @click="toggleThinking">
-            <BulbOutlined class="thinking-icon" />
-            <span class="thinking-title">AI思考过程</span>
-            <span v-if="generating" class="thinking-live">
-              <span class="thinking-live-dot"></span>
-              思考中
-            </span>
-            <span v-else class="thinking-meta">{{ displayedThinking.length }} 字</span>
-            <DownOutlined class="thinking-arrow" />
-          </button>
-          <div
-            v-show="!thinkingCollapsed"
-            ref="thinkingBodyRef"
-            class="thinking-body"
-            @scroll="handleThinkingScroll"
-          >
-            {{ displayedThinking }}
-          </div>
-        </div>
-
         <div ref="messageListRef" class="message-list" @scroll="handleMessageListScroll">
           <!-- 加载更多：历史消息还有更早的记录时，在消息上方展示入口 -->
           <div v-if="hasMoreHistory" class="history-more">
@@ -136,6 +107,35 @@
               <UserOutlined v-else />
             </div>
             <div class="message-bubble">
+              <!--
+                AI 思考过程：挂在**每一条 AI 回复的顶部**（三条 AI 回复就有三个思考过程），
+                而不是全页面共用一个。默认收起，只有"本轮正在生成"的那条默认展开、实时追加；
+                用户的收起/展开选择会按消息记住，并作为后续历史回复的默认值。
+              -->
+              <div
+                v-if="item.role === 'ai' && item.thinking"
+                class="thinking-panel"
+                :class="{ 'is-collapsed': isThinkingCollapsed(item) }"
+              >
+                <button type="button" class="thinking-header" @click="toggleThinking(item)">
+                  <BulbOutlined class="thinking-icon" />
+                  <span class="thinking-title">AI思考过程</span>
+                  <span v-if="isThinkingLive(item)" class="thinking-live">
+                    <span class="thinking-live-dot"></span>
+                    思考中
+                  </span>
+                  <span v-else class="thinking-meta">{{ item.thinking.length }} 字</span>
+                  <DownOutlined class="thinking-arrow" />
+                </button>
+                <div
+                  v-show="!isThinkingCollapsed(item)"
+                  :ref="(el) => setThinkingBodyRef(item.id, el)"
+                  class="thinking-body"
+                  @scroll="handleThinkingScroll(item)"
+                >
+                  {{ item.thinking }}
+                </div>
+              </div>
               <!-- 用户消息是纯文本，AI 回复走 Markdown 渲染 -->
               <div v-if="item.role === 'user'" class="message-content is-plain-text">
                 {{ item.content }}
@@ -498,22 +498,40 @@ const AUTO_SCROLL_THRESHOLD = 80
  */
 const autoScrollEnabled = ref(true)
 
-/** 顶部「AI 思考过程」面板是否收起（默认展开；选择记在 localStorage，避免每次进页面重新收一遍） */
-const thinkingCollapsed = ref(readThinkingCollapsed())
-const thinkingBodyRef = ref<HTMLElement | null>(null)
-/** 思考过程面板自身是否贴底：用户上翻查看前面的思考时同样不抢滚动条 */
-const thinkingPinned = ref(true)
+/** 思考过程面板的收起状态：消息 id -> 是否收起（未记录的按默认值走） */
+const thinkingCollapsedMap = ref<Record<string, boolean>>({})
+/**
+ * 历史回复里思考过程的默认收起状态
+ * <p>
+ * 默认收起：一条历史里可能有多个 AI 回复，每个都展开会把对话撑得很长；
+ * 用户手动收起/展开后，这个选择会被记住并作为后续历史回复的默认值。
+ */
+const defaultThinkingCollapsed = ref(readDefaultThinkingCollapsed())
+/** 思考过程面板是否贴底：消息 id -> 是否贴底（未记录的按贴底处理） */
+const thinkingPinnedMap = ref<Record<string, boolean>>({})
+/** 思考过程内容元素：消息 id -> 元素（用于生成中自动跟随滚动） */
+const thinkingBodyRefs = new Map<string, HTMLElement>()
+/** 本轮正在生成的 AI 消息 id：它的思考过程默认展开、实时更新 */
+const generatingMessageId = ref('')
 
 const THINKING_COLLAPSED_KEY = 'dsh:chat:thinking-collapsed'
 
-/** 读取「AI 思考过程」的收起状态（隐私模式等场景下 localStorage 不可用，忽略即可） */
-function readThinkingCollapsed(): boolean {
+/** 读取历史思考过程的默认收起状态（默认收起；隐私模式等场景下 localStorage 不可用，忽略即可） */
+function readDefaultThinkingCollapsed(): boolean {
   try {
-    return localStorage.getItem(THINKING_COLLAPSED_KEY) === '1'
+    return localStorage.getItem(THINKING_COLLAPSED_KEY) !== '0'
   } catch {
-    return false
+    return true
   }
 }
+
+/** 某条 AI 回复的思考过程是否收起 */
+const isThinkingCollapsed = (item: ChatMessage): boolean =>
+  thinkingCollapsedMap.value[item.id] ?? defaultThinkingCollapsed.value
+
+/** 某条 AI 回复是不是"本轮正在生成"的那条（用于展示「思考中」并实时跟随） */
+const isThinkingLive = (item: ChatMessage): boolean =>
+  generating.value && item.id === generatingMessageId.value
 
 /** 容器是否已经贴底 */
 const isNearBottom = (container: HTMLElement) =>
@@ -534,72 +552,72 @@ const scrollToBottomIfPinned = () => {
   }
 }
 
-/** 收起 / 展开「AI 思考过程」，并把选择记住 */
-const toggleThinking = () => {
-  thinkingCollapsed.value = !thinkingCollapsed.value
+/**
+ * 记录某条消息的思考过程元素
+ * <p>
+ * v-for 里用函数式 ref：元素卸载时（切换应用、消息被替换）Vue 会以 null 调用一次，
+ * 这里同步清掉映射，避免 Map 里留下已脱离文档的元素。
+ */
+const setThinkingBodyRef = (messageId: string, element: unknown) => {
+  if (element) {
+    thinkingBodyRefs.set(messageId, element as HTMLElement)
+  } else {
+    thinkingBodyRefs.delete(messageId)
+  }
+}
+
+/** 收起 / 展开某条 AI 回复的思考过程，并把选择记为后续历史回复的默认值 */
+const toggleThinking = (item: ChatMessage) => {
+  const next = !isThinkingCollapsed(item)
+  thinkingCollapsedMap.value[item.id] = next
+  defaultThinkingCollapsed.value = next
   try {
-    localStorage.setItem(THINKING_COLLAPSED_KEY, thinkingCollapsed.value ? '1' : '0')
+    localStorage.setItem(THINKING_COLLAPSED_KEY, next ? '1' : '0')
   } catch {
     // 存不了不影响使用
   }
-  if (!thinkingCollapsed.value) {
+  if (!next) {
     // 展开后直接定位到最新思考
     void nextTick(() => {
-      const box = thinkingBodyRef.value
+      const box = thinkingBodyRefs.get(item.id)
       if (box) {
         box.scrollTop = box.scrollHeight
       }
-      thinkingPinned.value = true
+      thinkingPinnedMap.value[item.id] = true
     })
   }
 }
 
-/** 滚动思考过程面板：同上，用户上翻后不再抢滚动条 */
-const handleThinkingScroll = () => {
-  const box = thinkingBodyRef.value
+/** 滚动某个思考过程面板：用户上翻后，该面板不再自动跟随 */
+const handleThinkingScroll = (item: ChatMessage) => {
+  const box = thinkingBodyRefs.get(item.id)
   if (box) {
-    thinkingPinned.value = isNearBottom(box)
+    thinkingPinnedMap.value[item.id] = isNearBottom(box)
   }
 }
 
-/**
- * 顶部「AI 思考过程」展示的内容
- * <p>
- * - 生成中：当前这一轮会话里的实时思考（此时历史里的思考属于上一轮，不能混进来，
- *   否则新一轮刚开始就会显示上一轮的推理内容）；
- * - 生成结束 / 刷新页面：取最后一条带思考的 AI 消息（刚结束的这一轮，或从对话历史恢复的）。
- */
-const displayedThinking = computed(() => {
-  if (generating.value) {
-    const currentAi = [...sessionMessages.value].reverse().find((item) => item.role === 'ai')
-    return currentAi?.thinking ?? ''
+/** 本轮生成本条 AI 回复已累积的思考长度（用于触发思考面板与消息列表的跟随滚动） */
+const liveThinkingLength = computed(() => {
+  if (!generating.value || !generatingMessageId.value) {
+    return 0
   }
-  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
-    const item = messages.value[index]
-    if (item.role === 'ai' && item.thinking) {
-      return item.thinking
-    }
-  }
-  return ''
+  const current = sessionMessages.value.find((item) => item.id === generatingMessageId.value)
+  return current?.thinking?.length ?? 0
 })
 
 // 思考过程实时追加：贴底时跟随滚动，用户上翻查看时保持阅读位置
-watch(
-  () => displayedThinking.value.length,
-  async () => {
-    if (thinkingCollapsed.value) {
-      return
-    }
-    await nextTick()
-    const box = thinkingBodyRef.value
-    if (box && thinkingPinned.value) {
-      box.scrollTop = box.scrollHeight
-    }
-    // 思考过程变长会把面板撑高、消息列表变矮，底部位置随之往下移；
-    // 这里同步跟随一次，否则"贴在底部"的用户会因为面板变高而看不到最新内容
-    scrollToBottomIfPinned()
-  },
-)
+watch(liveThinkingLength, async () => {
+  await nextTick()
+  const messageId = generatingMessageId.value
+  const box = messageId ? thinkingBodyRefs.get(messageId) : undefined
+  const item = sessionMessages.value.find((message) => message.id === messageId)
+  if (box && item && !isThinkingCollapsed(item) && (thinkingPinnedMap.value[messageId] ?? true)) {
+    box.scrollTop = box.scrollHeight
+  }
+  // 思考过程变长会把面板撑高、消息列表变矮，底部位置随之往下移；
+  // 这里同步跟随一次，否则"贴在底部"的用户会因为面板变高而看不到最新内容
+  scrollToBottomIfPinned()
+})
 const renameModalOpen = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
@@ -1082,6 +1100,9 @@ const genCode = async (prompt: string) => {
   })
 
   generating.value = true
+  // 本轮生成：思考过程默认展开（历史回复默认收起），并记为"正在生成"的那条
+  generatingMessageId.value = aiMessageId
+  thinkingCollapsedMap.value[aiMessageId] = false
   previewUrl.value = ''
   // 新一轮生成：清掉上一轮的构建失败提示，避免旧提示残留误导用户
   previewBuildError.value = ''
@@ -1165,6 +1186,11 @@ const recoverSessionMessage = () => {
     thinking: current.thinking || undefined,
   })
   generating.value = resuming || current.status === 'running'
+  if (generating.value) {
+    // 续订/恢复出的这一轮仍在生成：它的思考过程默认展开，并实时跟随
+    generatingMessageId.value = messageId
+    thinkingCollapsedMap.value[messageId] = false
+  }
   if (resuming) {
     // 续订中：内容会继续在 store 里累积，订阅它继续渲染
     activeGenerationWatch?.()
@@ -1651,13 +1677,13 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 
-/* ---- AI 思考过程（对话区顶部，可收起/展开） ---- */
+/* ---- AI 思考过程（每一条 AI 回复的顶部，可收起/展开） ---- */
 .thinking-panel {
-  flex: 0 0 auto;
-  margin: 10px 12px 0;
-  background: linear-gradient(135deg, #f4f8ff, #f7f4ff);
-  border: 1px solid #e6ecfb;
-  border-radius: 12px;
+  margin: 0 0 12px;
+  /* 比消息气泡底色略深一点，作为"AI 回复内部的一块"能被一眼区分出来 */
+  background: linear-gradient(135deg, #e9f1ff, #f3eeff);
+  border: 1px solid #dde7fb;
+  border-radius: 10px;
 }
 
 .thinking-header {

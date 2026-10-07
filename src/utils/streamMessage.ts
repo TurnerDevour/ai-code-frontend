@@ -38,6 +38,13 @@ export interface ParsedStreamMessage {
   failed: boolean
   /** tool_executed 的工具返回内容（失败时即失败原因） */
   result: string
+  /**
+   * tool_request / tool_executed 的**展示文本**（Markdown），由后端按工具自己声明的逻辑生成
+   *
+   * 必须优先用它：不同工具的参数结构不同（writeToFile 是 content，modifyFile 是 oldContent/newContent），
+   * 前端按工具名猜结构会把 modifyFile 渲染成"写入文件 + 空代码块"（实测问题）。
+   */
+  display: string
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -76,6 +83,8 @@ export const parseStreamMessage = (payload: unknown): ParsedStreamMessage | null
     // 同样会回调 onToolExecuted，因此必须显式区分，否则界面上"写了文件"与"根本没写"长得一样
     failed: record.failed === true,
     result: asString(record.result),
+    // 展示文本（后端按工具声明生成）：有它就直接渲染，没有才走前端的兜底格式
+    display: asString(record.display),
   }
 }
 
