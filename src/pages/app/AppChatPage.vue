@@ -37,12 +37,16 @@
       </div>
       <div class="header-right">
         <a-button class="detail-button" @click="openDetailModal">
-          <template #icon><ProfileOutlined /></template>
+          <template #icon>
+            <ProfileOutlined />
+          </template>
           应用详情
         </a-button>
         <a-tooltip v-if="canChat" title="下载代码">
           <a-button class="download-button" :loading="downloading" @click="handleDownload">
-            <template #icon><DownloadOutlined /></template>
+            <template #icon>
+              <DownloadOutlined />
+            </template>
           </a-button>
         </a-tooltip>
         <!-- 部署状态：以 /app/deploy/status 的 status 字段为准（老数据后端已按「有 deployKey = 已部署」返回） -->
@@ -61,7 +65,9 @@
           :disabled="deployDisabled"
           @click="handleDeploy"
         >
-          <template #icon><CloudUploadOutlined /></template>
+          <template #icon>
+            <CloudUploadOutlined />
+          </template>
           {{ deployButtonText }}
         </a-button>
       </div>
@@ -75,7 +81,9 @@
           <!-- 加载更多：历史消息还有更早的记录时，在消息上方展示入口 -->
           <div v-if="hasMoreHistory" class="history-more">
             <a-button class="load-more-button" :loading="historyLoading" @click="loadMoreHistory">
-              <template #icon><HistoryOutlined /></template>
+              <template #icon>
+                <HistoryOutlined />
+              </template>
               加载更多
             </a-button>
           </div>
@@ -671,10 +679,6 @@ const stopPreviewRefreshPolling = () => {
 /**
  * 生成本轮产出后的预览刷新编排
  *
- * 问题 2 的修复：Vue 工程的 dist 是生成结束后由后端**异步构建**出来的，旧实现收到 done 就
- * 立即刷新 iframe，此时 dist 往往还不存在（首轮）或仍是上一次的构建产物，于是预览区一片空白，
- * 必须用户手动点刷新。这里改成：先查构建状态，未完成就轮询到 finished/failed 再刷新。
- *
  * @param attempt 已轮询次数（内部递归使用）
  */
 const refreshPreviewAfterGeneration = (attempt = 0) => {
@@ -733,13 +737,6 @@ const schedulePreviewRefresh = () => {
 
 /**
  * 一轮生成结束后的收尾编排：刷新预览 + 重新读取部署状态
- * <p>
- * 为什么必须重新读部署状态：部署按钮的可用性取决于后端的 {@code deployStale}
- * （"代码改过、线上还是旧内容"）。这个值只在进入页面时取过一次，
- * 于是"先部署 → 再用 AI 改代码"之后，页面里仍然缓存着 {@code deployStale=false}，
- * 按钮会一直是灰的「已部署」，用户根本点不动——就是"改完内容无法二次部署"。
- * 生成结束时后端已经把 edit_time 落库（见 GenerationTaskRegistry#finish 的顺序），
- * 这里同步一次就能把按钮切成「重新部署」。
  */
 const afterGenerationFinished = () => {
   schedulePreviewRefresh()
@@ -748,16 +745,6 @@ const afterGenerationFinished = () => {
 
 /**
  * 订阅某一轮生成会话，把它累积的内容与终态同步到页面上的一条 AI 消息
- *
- * 关键点（本体是问题 1 的修复）：
- *   1. 订阅被钉在「发起时的那个会话对象」上。store 里每一轮生成都会整体替换会话对象，
- *      因此回调里只要发现自己的会话不再是当前会话，就立刻解绑——上一轮的订阅绝不会
- *      再去修改任何消息（旧实现按 content.length 增量同步，第 2 轮把长度重置为 0 时
- *      会被误判成"内容变短"，于是清空第一轮消息、再被第二轮的流灌满）；
- *   2. 同步按「已同步前缀」比对：内容仍以已同步部分开头时只追加差异，
- *      否则（会话被重建/内容被改写）整体重建并立即渲染，不会出现半截内容；
- *   3. 会话进入终态（done/error/stopped）后自动解绑，避免订阅长期挂着；
- *   4. 出错时只提示一次，且不再刷新预览，避免展示半成品。
  *
  * @param session     要订阅的会话对象（必须是当时 store 里的当前会话）
  * @param messageId   同步到哪条 AI 消息
@@ -817,10 +804,6 @@ const watchGenerationSession = (
         if (!detached) {
           detached = true
           stopWatch()
-          // 这一轮失败 ≠ 之前生成的网站不存在：仍然走一次「刷新预览」编排。
-          // 服务端已经没有任务时会立刻返回终态（一次请求），不会造成空转轮询；
-          // 若确实还有构建在跑，则会等它结束再刷新。否则用户点进应用只能看到空白预览，
-          // 必须手动点「刷新预览」才看得到已经做好的网站。
           hooks.onFinished?.()
         }
         return
@@ -834,17 +817,14 @@ const watchGenerationSession = (
         if (!detached) {
           detached = true
           stopWatch()
-          // 本轮产出已就绪：Vue 工程要等后端构建完成再刷新，静态模式立即刷新
           hooks.onFinished?.()
         }
         return
       }
-      // 生成中：节流渲染，结束后用终态分支做一次完整渲染
       updateAiMessage((target) => (finished ? flushMarkdown(target) : scheduleMarkdown(target)))
     },
     { immediate: true },
   )
-  // 立即把已有快照渲染出来（刷新页面后重新订阅时会用到）
   if (session.content) {
     syncedContent = session.content
     updateAiMessage((target) => {
@@ -859,8 +839,6 @@ const watchGenerationSession = (
 }
 
 // 调用 SSE 接口生成代码
-// 生成请求挂在全局 store 上（useGenerationStore）：用户点返回/关闭页面时不会掐断连接，
-// 而是保持生成继续、把结果接住；回到页面时从 store 快照恢复已生成的内容。
 const genCode = async (prompt: string) => {
   if (!appId.value || isGenerating(appId.value)) {
     return
@@ -878,8 +856,6 @@ const genCode = async (prompt: string) => {
   previewUrl.value = ''
   await scrollToBottom()
 
-  // 先解除上一轮遗留的订阅与预览轮询（它们属于已经结束的那一轮），再发起新一轮生成。
-  // 否则「等构建完成再刷新预览」的定时器会把上一轮的产物刷到新一轮的界面上。
   activeGenerationWatch?.()
   activeGenerationWatch = null
   stopPreviewRefreshPolling()
@@ -1216,7 +1192,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // 注意：这里【不】中断生成请求。
+  // 注意：不中断生成请求。
   // 用户点返回/关闭页面时，生成会继续在 store 里跑完（服务端同一轮也会继续），
   // 回到页面时重新订阅即可拿到完整内容；只有切换应用才会真正中断（见上面的路由 watch）。
   activeGenerationWatch?.()
@@ -1367,7 +1343,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 6px 14px rgb(22 119 255 / 14%);
 }
 
-/* 下载代码：纯图标按钮，与「应用详情」按钮同一套描边风格 */
 .download-button {
   display: inline-flex;
   justify-content: center;
@@ -1439,12 +1414,10 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 16px 14px 6px;
   overflow-y: auto;
-  /* 常驻预留滚动条宽度，内容增减时不会左右抖动 */
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
 
-/* 滚动条：轨道透明、滑块是内缩的圆角胶囊，鼠标移入时渐变为品牌蓝 */
 .message-list::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -1478,7 +1451,6 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-/* 不支持 ::-webkit-scrollbar 的浏览器（如 Firefox）用标准属性兜底 */
 @supports not selector(::-webkit-scrollbar) {
   .message-list {
     scrollbar-width: thin;
@@ -1490,7 +1462,6 @@ onBeforeUnmount(() => {
   margin-top: 56px;
 }
 
-/* ---- 历史消息加载更多 ---- */
 .history-more {
   display: flex;
   justify-content: center;
@@ -1581,13 +1552,10 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-/* 用户消息是纯文本，保留原有换行与空格 */
 .message-content.is-plain-text {
   white-space: pre-wrap;
 }
 
-/* ---- AI 回复的 Markdown 样式 ----
-   v-html 注入的节点不带 scoped 标记，因此统一用 :deep 命中 */
 .message-content.markdown-body {
   font-size: 14px;
   line-height: 1.75;
@@ -1670,7 +1638,6 @@ onBeforeUnmount(() => {
   border-radius: 8px;
 }
 
-/* 行内代码 */
 .message-content.markdown-body :deep(code) {
   padding: 2px 6px;
   color: #d6396b;
@@ -1681,7 +1648,6 @@ onBeforeUnmount(() => {
   background: #f5f8fd;
 }
 
-/* 代码块：高亮着色交给 highlight.js 的主题，这里只控制容器 */
 .message-content.markdown-body :deep(pre) {
   margin: 10px 0;
   padding: 12px 14px;
@@ -1719,7 +1685,6 @@ onBeforeUnmount(() => {
   background: #f5f8fd;
 }
 
-/* 首尾元素去掉多余外边距，让气泡内边距保持一致 */
 .message-content.markdown-body :deep(p:first-child),
 .message-content.markdown-body :deep(pre:first-child),
 .message-content.markdown-body :deep(ul:first-child),
@@ -1777,7 +1742,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 生成失败提示：后端 error 帧的错误原因，软红底 + 图标，长文案可换行 */
 .error-tip {
   display: flex;
   gap: 6px;
@@ -1803,9 +1767,6 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
-/* ---- 可视化编辑：选中元素提示条（输入框上方） ----
-   选择器都带上 .input-wrapper 前缀：antd 的组件样式带哈希类名（同为 0,2,0 权重），
-   且由 cssinjs 在运行时注入，仅靠类名无法稳定覆盖 */
 .input-wrapper .selected-element-alert {
   padding: 9px 14px;
   margin-bottom: 10px;
@@ -1846,7 +1807,6 @@ onBeforeUnmount(() => {
   margin-right: 8px;
 }
 
-/* 选中的元素标识：等宽字体 + 白底描边胶囊，和代码块的视觉语言一致 */
 .element-alert-tag {
   padding: 1px 8px;
   color: #1677ff;
@@ -1958,8 +1918,6 @@ onBeforeUnmount(() => {
   margin-top: 8px;
 }
 
-/* ---- 可视化编辑按钮：位于发送按钮左侧，开启后转为品牌渐变实心 ----
-   字数计数与快捷键提示由 InputHintBar 渲染，发送按钮由 SubmitButton 渲染 */
 .visual-edit-button {
   display: grid;
   flex: 0 0 36px;
@@ -2014,7 +1972,6 @@ onBeforeUnmount(() => {
     box-shadow 0.2s ease;
 }
 
-/* 编辑模式：预览面板整体描边高亮，提示当前处于点选状态 */
 .preview-panel.is-editing {
   border-color: #bfdbfe;
   box-shadow: 0 12px 36px rgb(22 119 255 / 14%);
@@ -2042,7 +1999,6 @@ onBeforeUnmount(() => {
   color: #1677ff;
 }
 
-/* 编辑模式徽标：标题右侧的蓝色胶囊提示 */
 .preview-editing-badge {
   display: inline-flex;
   gap: 5px;
@@ -2061,7 +2017,6 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-/* 开启编辑模式失败时的原因提示：常驻在标题旁，不再只靠一闪而过的 toast */
 .preview-error-badge {
   display: inline-flex;
   gap: 5px;
@@ -2199,7 +2154,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* —— Markdown 代码块（超长代码行的横向滚动）—— */
 .message-content.markdown-body :deep(pre::-webkit-scrollbar) {
   width: 10px;
   height: 10px;
@@ -2232,13 +2186,11 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 
-/* 表格内超长内容优先换行，避免把对话区撑出横向滚动条 */
 .message-content.markdown-body :deep(th),
 .message-content.markdown-body :deep(td) {
   word-break: break-word;
 }
 
-/* 不支持 ::-webkit-scrollbar 的浏览器（如 Firefox）兜底 */
 @supports not selector(::-webkit-scrollbar) {
   .message-content.markdown-body :deep(pre) {
     scrollbar-width: thin;

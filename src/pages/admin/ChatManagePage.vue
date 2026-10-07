@@ -126,8 +126,6 @@ import { CHAT_MESSAGE_TYPE_OPTIONS } from '@/constant/chat'
 
 const router = useRouter()
 
-// 列宽由 table-layout: fixed 精确分配：
-// id / 应用 id 给足 19 位雪花 id 的单行宽度，消息内容列分到最宽并限高 3 行
 const columns = [
   {
     title: 'id',
@@ -173,7 +171,6 @@ const columns = [
   },
 ]
 
-// id 类条件只在输入为纯数字时才作为查询条件传给后端，避免非数字输入导致请求参数错误
 const toIdParam = (value?: string) => {
   const trimmed = (value ?? '').trim()
   return /^\d+$/.test(trimmed) ? trimmed : undefined
@@ -218,7 +215,6 @@ const goToAppChat = (record: API.ChatHistory) => {
   margin: 0 auto;
 }
 
-/* 消息内容列：允许换行并最多展示 3 行，完整内容通过 tooltip 查看 */
 .chat-manage-page :deep(.ant-table-tbody > tr > td:nth-child(2)) {
   white-space: normal;
 }
@@ -227,7 +223,6 @@ const goToAppChat = (record: API.ChatHistory) => {
   width: 160px;
 }
 
-/* 消息内容可能很长：单元格内最多展示 3 行，完整内容通过 tooltip 查看 */
 .message-text {
   display: -webkit-box;
   overflow: hidden;
@@ -240,7 +235,6 @@ const goToAppChat = (record: API.ChatHistory) => {
   line-clamp: 3;
 }
 
-/* 应用 id：单行展示，过长时省略号截断，不会把列撑破 */
 .app-id-link {
   display: inline-block;
   max-width: 100%;
@@ -265,10 +259,6 @@ const goToAppChat = (record: API.ChatHistory) => {
 }
 </style>
 
-<!--
-  消息内容 tooltip：浮层由 ant-design-vue 挂到 body 上，scoped 样式命中不了，
-  因此用 overlay-class-name 定位，走非 scoped 样式并限制最大高度。
--->
 <style>
 .message-tooltip {
   max-width: 520px;
@@ -281,7 +271,6 @@ const goToAppChat = (record: API.ChatHistory) => {
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.75;
-  /* 长消息保留原始换行 */
   white-space: pre-wrap;
   word-break: break-word;
   overscroll-behavior: contain;

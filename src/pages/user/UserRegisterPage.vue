@@ -86,13 +86,11 @@ const { success, error, fail } = useMessage()
  * @param values
  */
 const handleSubmit = async (values: API.UserRegisterRequest) => {
-  // 判断两次输入的密码是否一致
   if (formState.userPassword !== formState.checkPassword) {
     error('二次输入的密码不一致')
     return
   }
   const res = await userRegister(values)
-  // 注册成功，跳转到登录页面
   if (res.data.code === 0 && res.data.data) {
     await router.push({
       path: '/user/login',

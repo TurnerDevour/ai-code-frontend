@@ -203,10 +203,6 @@ const handleViewChat = async (app: API.AppVO) => {
 <style scoped>
 .home-page {
   position: relative;
-
-  /* 装饰光斑按设计溢出到页面外侧（orb-right 的 right: -220px），必须在这里裁掉，
-     否则会溢进 main-content 的可滚动区域，
-     在 1280~1600 这类笔记本宽度下常驻一条横向滚动条 */
   overflow: hidden;
   max-width: 1382px;
   margin: 0 auto;
@@ -288,7 +284,6 @@ const handleViewChat = async (app: API.AppVO) => {
   background: linear-gradient(105deg, #3b8cff, #7175ff) !important;
 }
 
-/* 手机：单列 */
 @media (max-width: 760px) {
   .hero-section {
     padding: 10px 0 38px;

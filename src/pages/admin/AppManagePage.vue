@@ -290,7 +290,6 @@ const goToAppDetail = (record: API.AppVO) => {
   width: 200px;
 }
 
-/* 操作列：按钮组左右各留出内缩间距，不贴单元格边线，也不会溢出被面板裁掉 */
 .app-manage-page :deep(.ant-table-thead > tr > th:last-child),
 .app-manage-page :deep(.ant-table-tbody > tr > td:last-child) {
   padding-right: 20px;

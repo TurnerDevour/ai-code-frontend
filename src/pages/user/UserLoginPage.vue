@@ -73,7 +73,6 @@ const formState = reactive<API.UserLoginRequest>({
  */
 const handleSubmit = async (values: API.UserLoginRequest) => {
   const res = await userLogin(values)
-  // 登录成功，把登录态保存到全局状态中
   if (res.data.code === 0 && res.data.data) {
     await loginUserStore.fetchLoginUser()
     await router.push({

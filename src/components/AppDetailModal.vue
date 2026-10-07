@@ -83,6 +83,7 @@ import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
 import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
 import DeployStatusTag from '@/components/DeployStatusTag.vue'
 import { describeDeployStatus } from '@/utils/deploy'
+import { formatDateTime } from '@/utils/time'
 
 const props = withDefaults(
   defineProps<{
@@ -116,8 +117,13 @@ const coverText = computed(() => (props.app.appName || '未')[0])
 /** 部署状态的悬浮说明：排队进度、失败原因都在这里展示 */
 const deployTip = computed(() => describeDeployStatus(props.deployStatus))
 
-/** 部署时间：仅部署成功后由后端下发 */
-const deployedTime = computed(() => props.deployStatus?.deployedTime ?? '')
+/**
+ * 部署时间：仅部署成功后由后端下发
+ * <p>
+ * 该字段后端给的是 ISO 8601（如 `2026-10-07T13:45:08`），与上面的「创建时间」写法不一致，
+ * 这里统一格式化成 `YYYY-MM-DD HH:mm:ss` 再展示
+ */
+const deployedTime = computed(() => formatDateTime(props.deployStatus?.deployedTime))
 
 const handleOpenChange = (value: boolean) => {
   emit('update:open', value)
