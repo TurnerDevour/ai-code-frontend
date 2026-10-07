@@ -2,7 +2,7 @@
  * Vue 工程模式（VUE_PROJECT）流式消息解析。
  *
  * 后端 TokenStream 的每个数据块都是一个 JSON 字符串，通过 SSE 的 data 字段下发，
- * 结构为 { type: 'ai_response' | 'tool_request' | 'tool_executed' | 'error', ... }。
+ * 结构为 { type: 'ai_response' | 'ai_thinking' | 'tool_request' | 'tool_executed' | 'error', ... }。
  * 与后端 StreamMessageTypeEnum 保持一致。
  *
  * 注意：error 同样走 data: 帧（{"type":"error","data":"..."}），与 ai_response 同层，
@@ -11,8 +11,10 @@
 
 /** 消息类型枚举值（与后端 StreamMessageTypeEnum 一致） */
 export const STREAM_MESSAGE_TYPE = {
-  /** AI 文本响应（含推理模型的思考内容） */
+  /** AI 文本响应（给用户看的正文） */
   AI_RESPONSE: 'ai_response',
+  /** AI 思考过程（推理模型的 reasoning_content），展示在对话页顶部的「AI 思考过程」面板 */
+  AI_THINKING: 'ai_thinking',
   /** 工具调用请求 */
   TOOL_REQUEST: 'tool_request',
   /** 工具执行结果，携带写入文件的路径与内容 */
@@ -26,7 +28,7 @@ export type StreamMessageType = (typeof STREAM_MESSAGE_TYPE)[keyof typeof STREAM
 /** 解析后的流式消息 */
 export interface ParsedStreamMessage {
   type: StreamMessageType
-  /** ai_response / error 的文本内容（error 时为错误原因） */
+  /** ai_response / ai_thinking / error 的文本内容（error 时为错误原因） */
   data: string
   /** tool_* 的工具名称 */
   name: string

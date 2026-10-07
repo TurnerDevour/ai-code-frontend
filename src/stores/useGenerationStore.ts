@@ -47,6 +47,13 @@ export interface GenerationSession {
   status: GenerationStatus
   /** 累积的展示内容（Markdown 源码） */
   content: string
+  /**
+   * 累积的 AI 思考过程（推理模型的 reasoning_content）
+   *
+   * 与 content 分开累积：它展示在对话页顶部的「AI 思考过程」面板里，
+   * 混进正文会让 AI 回复里夹着大段推理内容（后端也是单独一列落库的）。
+   */
+  thinking: string
   /** 已产生的工具执行结果（按到达顺序） */
   toolExecutions: { relativePath: string; content: string }[]
   /** 失败原因（status=error 时） */
@@ -79,6 +86,7 @@ const createSession = (appId: string): GenerationSession => ({
   roundId: `round-${Date.now()}-${++roundSeed}`,
   status: 'running',
   content: '',
+  thinking: '',
   toolExecutions: [],
   errorMessage: '',
   doneReceived: false,
@@ -102,6 +110,13 @@ const STORAGE_PREFIX = 'dsh:generation:'
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000
 /** 单条会话的持久化上限：超长内容（几十个文件）不落盘，避免撑爆 sessionStorage 配额 */
 const MAX_PERSIST_CONTENT = 400_000
+/**
+ * 思考过程的持久化上限
+ *
+ * 思考过程可能很长（推理模型一轮几万字），这里只用于 sessionStorage 回放截断；
+ * 后端 chat_history.thinking 存的是完整内容，刷新页面后仍能从历史里拿全。
+ */
+const MAX_PERSIST_THINKING = 60_000
 /** 流式过程中落盘的最小间隔：每帧都写会明显拖慢渲染 */
 const PERSIST_INTERVAL_MS = 1200
 
@@ -109,16 +124,20 @@ const persistSession = (session: GenerationSession) => {
   if (typeof sessionStorage === 'undefined') {
     return
   }
+  const thinking =
+    session.thinking.length > MAX_PERSIST_THINKING
+      ? session.thinking.slice(0, MAX_PERSIST_THINKING)
+      : session.thinking
   try {
     if (session.content.length > MAX_PERSIST_CONTENT) {
       // 内容过大：只保存状态与序号，不保存正文（正文仍可从后端对话历史看到）
       sessionStorage.setItem(
         STORAGE_PREFIX + session.appId,
-        JSON.stringify({ ...session, content: '', toolExecutions: [], persistTruncated: true }),
+        JSON.stringify({ ...session, content: '', toolExecutions: [], thinking, persistTruncated: true }),
       )
       return
     }
-    sessionStorage.setItem(STORAGE_PREFIX + session.appId, JSON.stringify(session))
+    sessionStorage.setItem(STORAGE_PREFIX + session.appId, JSON.stringify({ ...session, thinking }))
   } catch {
     // 配额不足等问题不影响主流程
   }
@@ -165,6 +184,7 @@ const restoreSession = (appId: string): GenerationSession | null => {
     parsed.lastSeq = parsed.lastSeq ?? 0
     parsed.appliedSeq = parsed.appliedSeq ?? 0
     parsed.lastFrameAt = parsed.lastFrameAt ?? parsed.startedAt ?? Date.now()
+    parsed.thinking = parsed.thinking ?? ''
     // 旧快照没有轮次标识：补一个，保证「按轮次解绑」的比较逻辑对它同样成立
     parsed.roundId = parsed.roundId ?? `round-restored-${parsed.startedAt ?? Date.now()}`
     if (parsed.status === 'running') {
@@ -249,6 +269,13 @@ export const useGenerationStore = defineStore('generation', () => {
     if (message.type === STREAM_MESSAGE_TYPE.AI_RESPONSE) {
       if (message.data) {
         session.content += message.data
+      }
+      return
+    }
+    if (message.type === STREAM_MESSAGE_TYPE.AI_THINKING) {
+      // 思考过程单独累积：它只进「AI 思考过程」面板，不进 AI 回复正文
+      if (message.data) {
+        session.thinking += message.data
       }
       return
     }

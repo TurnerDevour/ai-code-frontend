@@ -77,7 +77,36 @@
     <div class="chat-body">
       <!-- 左侧对话区域 -->
       <section class="chat-panel">
-        <div ref="messageListRef" class="message-list">
+        <!--
+          AI 思考过程：固定在对话区顶部（消息列表之上），生成过程中实时追加。
+          收起/展开状态记在 localStorage 里，避免每次进页面都要重新收一遍。
+        -->
+        <div
+          v-if="displayedThinking"
+          class="thinking-panel"
+          :class="{ 'is-collapsed': thinkingCollapsed }"
+        >
+          <button type="button" class="thinking-header" @click="toggleThinking">
+            <BulbOutlined class="thinking-icon" />
+            <span class="thinking-title">AI思考过程</span>
+            <span v-if="generating" class="thinking-live">
+              <span class="thinking-live-dot"></span>
+              思考中
+            </span>
+            <span v-else class="thinking-meta">{{ displayedThinking.length }} 字</span>
+            <DownOutlined class="thinking-arrow" />
+          </button>
+          <div
+            v-show="!thinkingCollapsed"
+            ref="thinkingBodyRef"
+            class="thinking-body"
+            @scroll="handleThinkingScroll"
+          >
+            {{ displayedThinking }}
+          </div>
+        </div>
+
+        <div ref="messageListRef" class="message-list" @scroll="handleMessageListScroll">
           <!-- 加载更多：历史消息还有更早的记录时，在消息上方展示入口 -->
           <div v-if="hasMoreHistory" class="history-more">
             <a-button class="load-more-button" :loading="historyLoading" @click="loadMoreHistory">
@@ -311,6 +340,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Modal } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
+  BulbOutlined,
   CloudUploadOutlined,
   DesktopOutlined,
   DownOutlined,
@@ -374,6 +404,13 @@ interface ChatMessage {
   status: 'done' | 'loading' | 'error'
   /** 出错时后端下发的错误原因（error 帧的 data），展示给用户 */
   errorMessage?: string
+  /**
+   * 本轮的 AI 思考过程（推理模型的 reasoning_content）
+   * <p>
+   * 与 content 分开保存：它只展示在对话区顶部的「AI 思考过程」面板里，
+   * 不能混进 AI 回复正文（后端也是单独一列 chat_history.thinking 落库的）
+   */
+  thinking?: string
 }
 
 const route = useRoute()
@@ -444,6 +481,125 @@ let buildErrorNotified = false
 /** 兜底文案：后端没给出原因时使用 */
 const DEFAULT_BUILD_ERROR = 'Vue 工程打包失败，未生成可预览的产物'
 const messageListRef = ref<HTMLElement | null>(null)
+
+/**
+ * 距底部多少像素以内算"贴底"
+ * <p>
+ * 取值要兼顾两头：太小会把"轻微上滑"也判成"离开了底部"（滚动条被反复抢），
+ * 太大则用户翻上去之后仍会被拉回底部，没法安静地看已经生成的内容。
+ */
+const AUTO_SCROLL_THRESHOLD = 80
+
+/**
+ * 生成过程中是否继续自动贴底
+ * <p>
+ * 用户手动往上翻时置为 false：之后新生成的增量不再抢滚动条，
+ * 这样生成期间可以随时回看上面已经生成的内容（需求 2）。重新滚到底部即恢复。
+ */
+const autoScrollEnabled = ref(true)
+
+/** 顶部「AI 思考过程」面板是否收起（默认展开；选择记在 localStorage，避免每次进页面重新收一遍） */
+const thinkingCollapsed = ref(readThinkingCollapsed())
+const thinkingBodyRef = ref<HTMLElement | null>(null)
+/** 思考过程面板自身是否贴底：用户上翻查看前面的思考时同样不抢滚动条 */
+const thinkingPinned = ref(true)
+
+const THINKING_COLLAPSED_KEY = 'dsh:chat:thinking-collapsed'
+
+/** 读取「AI 思考过程」的收起状态（隐私模式等场景下 localStorage 不可用，忽略即可） */
+function readThinkingCollapsed(): boolean {
+  try {
+    return localStorage.getItem(THINKING_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+/** 容器是否已经贴底 */
+const isNearBottom = (container: HTMLElement) =>
+  container.scrollHeight - container.scrollTop - container.clientHeight <= AUTO_SCROLL_THRESHOLD
+
+/** 用户滚动消息列表：按当前位置决定接下来是否继续自动贴底 */
+const handleMessageListScroll = () => {
+  const container = messageListRef.value
+  if (container) {
+    autoScrollEnabled.value = isNearBottom(container)
+  }
+}
+
+/** 流式追加时调用：只有用户本来就在底部才跟着滚，否则保持用户的阅读位置 */
+const scrollToBottomIfPinned = () => {
+  if (autoScrollEnabled.value) {
+    void scrollToBottom()
+  }
+}
+
+/** 收起 / 展开「AI 思考过程」，并把选择记住 */
+const toggleThinking = () => {
+  thinkingCollapsed.value = !thinkingCollapsed.value
+  try {
+    localStorage.setItem(THINKING_COLLAPSED_KEY, thinkingCollapsed.value ? '1' : '0')
+  } catch {
+    // 存不了不影响使用
+  }
+  if (!thinkingCollapsed.value) {
+    // 展开后直接定位到最新思考
+    void nextTick(() => {
+      const box = thinkingBodyRef.value
+      if (box) {
+        box.scrollTop = box.scrollHeight
+      }
+      thinkingPinned.value = true
+    })
+  }
+}
+
+/** 滚动思考过程面板：同上，用户上翻后不再抢滚动条 */
+const handleThinkingScroll = () => {
+  const box = thinkingBodyRef.value
+  if (box) {
+    thinkingPinned.value = isNearBottom(box)
+  }
+}
+
+/**
+ * 顶部「AI 思考过程」展示的内容
+ * <p>
+ * - 生成中：当前这一轮会话里的实时思考（此时历史里的思考属于上一轮，不能混进来，
+ *   否则新一轮刚开始就会显示上一轮的推理内容）；
+ * - 生成结束 / 刷新页面：取最后一条带思考的 AI 消息（刚结束的这一轮，或从对话历史恢复的）。
+ */
+const displayedThinking = computed(() => {
+  if (generating.value) {
+    const currentAi = [...sessionMessages.value].reverse().find((item) => item.role === 'ai')
+    return currentAi?.thinking ?? ''
+  }
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const item = messages.value[index]
+    if (item.role === 'ai' && item.thinking) {
+      return item.thinking
+    }
+  }
+  return ''
+})
+
+// 思考过程实时追加：贴底时跟随滚动，用户上翻查看时保持阅读位置
+watch(
+  () => displayedThinking.value.length,
+  async () => {
+    if (thinkingCollapsed.value) {
+      return
+    }
+    await nextTick()
+    const box = thinkingBodyRef.value
+    if (box && thinkingPinned.value) {
+      box.scrollTop = box.scrollHeight
+    }
+    // 思考过程变长会把面板撑高、消息列表变矮，底部位置随之往下移；
+    // 这里同步跟随一次，否则"贴在底部"的用户会因为面板变高而看不到最新内容
+    scrollToBottomIfPinned()
+  },
+)
 const renameModalOpen = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
@@ -570,6 +726,8 @@ const buildPreviewUrl = () => {
 
 const scrollToBottom = async () => {
   await nextTick()
+  // 主动滚到底部（发送消息 / 用户自己滚到底）时重新开启自动贴底
+  autoScrollEnabled.value = true
   const container = messageListRef.value
   if (container) {
     container.scrollTop = container.scrollHeight
@@ -601,6 +759,8 @@ const toChatMessage = (record: API.ChatHistory): ChatMessage => ({
   content: record.message ?? '',
   html: renderMarkdown(record.message ?? ''),
   status: 'done',
+  // 后端把思考过程单独存在 chat_history.thinking，刷新页面后从历史里恢复出来
+  thinking: record.thinking || undefined,
 })
 
 /**
@@ -811,18 +971,29 @@ const watchGenerationSession = (
   const updateAiMessage = createMessageUpdater(messageId)
   // 已同步进 UI 的内容：用前缀比对代替长度比对，避免"长度变小"引发整体清空
   let syncedContent = ''
+  // 已同步进 UI 的思考过程（只增不减，同样按前缀推进）
+  let syncedThinking = ''
   // 出错提示只弹一次
   let errorNotified = false
   // 订阅是否已解绑：避免终态回调重复触发预览刷新
   let detached = false
   const stopWatch = watch(
-    () => `${session.content.length}:${session.status}`,
+    // 正文与思考过程都要参与触发：只盯正文会漏掉"模型这一轮只在思考"的增量
+    () => `${session.content.length}:${session.thinking.length}:${session.status}`,
     () => {
       // 会话已被新一轮替换（或被清理）：本轮订阅立即失效，不再触碰任何消息
       if (detached || getCurrentSession(targetAppId) !== session) {
         detached = true
         stopWatch()
         return
+      }
+      // 思考过程：单独同步到消息上，由顶部的「AI 思考过程」面板展示（不进正文）
+      const thinking = session.thinking
+      if (thinking.length > syncedThinking.length) {
+        syncedThinking = thinking
+        updateAiMessage((target) => {
+          target.thinking = thinking
+        })
       }
       const content = session.content
       const finished = session.status !== 'running'
@@ -838,7 +1009,8 @@ const watchGenerationSession = (
         updateAiMessage((target) => {
           target.content += delta
         })
-        scrollToBottom()
+        // 只在用户"本来就在底部"时才跟着滚：生成期间可以安心上翻查看已经生成的内容
+        scrollToBottomIfPinned()
       }
       if (session.status === 'error') {
         if (!errorNotified) {
@@ -880,6 +1052,13 @@ const watchGenerationSession = (
     updateAiMessage((target) => {
       target.content = session.content
       flushMarkdown(target)
+    })
+  }
+  // 续订/恢复时把已经积累的思考补上，避免刷新回来面板是空的
+  if (session.thinking) {
+    syncedThinking = session.thinking
+    updateAiMessage((target) => {
+      target.thinking = session.thinking
     })
   }
   return () => {
@@ -983,6 +1162,7 @@ const recoverSessionMessage = () => {
     html: renderMarkdown(current.content),
     status: resuming || current.status === 'running' ? 'loading' : 'done',
     errorMessage: current.errorMessage || undefined,
+    thinking: current.thinking || undefined,
   })
   generating.value = resuming || current.status === 'running'
   if (resuming) {
@@ -1469,6 +1649,116 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
+}
+
+/* ---- AI 思考过程（对话区顶部，可收起/展开） ---- */
+.thinking-panel {
+  flex: 0 0 auto;
+  margin: 10px 12px 0;
+  background: linear-gradient(135deg, #f4f8ff, #f7f4ff);
+  border: 1px solid #e6ecfb;
+  border-radius: 12px;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  color: #48658b;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.thinking-icon {
+  color: #1677ff;
+  font-size: 14px;
+}
+
+.thinking-title {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* 生成中：一个小圆点 + 文字，明确"思考还在继续" */
+.thinking-live {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: #1677ff;
+  font-size: 12px;
+}
+
+.thinking-live-dot {
+  width: 6px;
+  height: 6px;
+  background: #1677ff;
+  border-radius: 50%;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+.thinking-meta {
+  color: #9aa9bf;
+  font-size: 12px;
+}
+
+.thinking-arrow {
+  margin-left: auto;
+  color: #9db4d4;
+  font-size: 11px;
+  transition: transform 0.2s ease;
+}
+
+.thinking-panel.is-collapsed .thinking-arrow {
+  /* 收起时箭头指向右侧，表示"可以展开" */
+  transform: rotate(-90deg);
+}
+
+.thinking-body {
+  max-height: 160px;
+  padding: 0 12px 10px;
+  overflow-y: auto;
+  color: #5b6b85;
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overscroll-behavior: contain;
+}
+
+/* 矮屏（小笔记本 / 分屏）：思考过程面板让位给消息列表，避免只看到一块思考内容 */
+@media (max-height: 760px) {
+  .thinking-body {
+    max-height: 108px;
+  }
+}
+
+.thinking-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.thinking-body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbe6f5, #cadcf0);
+  background-clip: padding-box;
 }
 
 .message-list::-webkit-scrollbar {
