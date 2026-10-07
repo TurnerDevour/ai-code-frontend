@@ -4,7 +4,7 @@ declare namespace API {
     initPrompt: string
     /** 代码生成类型（枚举）：html / multi_file / vue_project，默认 multi_file */
     codeGenType?: string
-    /** AI 模型类型（枚举）：deepseek-flash / deepseek-v4-pro，默认 deepseek-flash */
+    /** AI 模型类型（枚举）：deepseek-flash / deepseek-v4-pro / qwen3.8-max / qwen3.7-plus，默认 deepseek-flash */
     aiModelType?: string
   }
 

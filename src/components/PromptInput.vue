@@ -97,7 +97,9 @@
 import { computed, ref } from 'vue'
 import {
   BulbOutlined,
+  CloudOutlined,
   CodeOutlined,
+  CrownOutlined,
   FileTextOutlined,
   LayoutOutlined,
   RocketOutlined,
@@ -122,6 +124,9 @@ const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
 const AI_MODEL_TYPE_ICONS: Record<string, unknown> = {
   [AI_MODEL_TYPE.DEEPSEEK_FLASH]: ThunderboltOutlined,
   [AI_MODEL_TYPE.DEEPSEEK_V4_PRO]: RocketOutlined,
+  // 阿里云百炼：旗舰模型用皇冠，高性价比模型用云（与 DeepSeek 的闪电 / 火箭区分开）
+  [AI_MODEL_TYPE.QWEN_3_8_MAX]: CrownOutlined,
+  [AI_MODEL_TYPE.QWEN_3_7_PLUS]: CloudOutlined,
 }
 
 const { warning } = useMessage()
@@ -558,7 +563,9 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
 -->
 <style>
 .prompt-select-dropdown {
-  min-width: 196px;
+  /* 选项宽度取"选中项"的宽度，而 Qwen 两个模型的 label（如 Qwen3.7-Plus（阿里云百炼高性价比））
+     明显比 DeepSeek 长；不抬高下限的话，选中 DeepSeek 时弹出层会被压窄、Qwen 的 label 被省略号截断 */
+  min-width: 280px;
   padding: 6px;
   margin-top: 4px;
   border: 1px solid #e8eff9;
