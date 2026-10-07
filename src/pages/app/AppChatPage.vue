@@ -211,6 +211,11 @@
               <ExclamationCircleOutlined />
               {{ editError }}
             </span>
+            <!-- 构建失败：预览区必然是空白/404，标题行先给一个一眼可见的状态 -->
+            <span v-if="previewBuildError" class="preview-error-badge">
+              <ExclamationCircleOutlined />
+              构建失败
+            </span>
           </div>
           <div class="preview-actions">
             <a-tooltip title="刷新预览">
@@ -236,6 +241,17 @@
           </div>
         </div>
         <div class="preview-body">
+          <!-- 构建失败时给明确解释：否则用户只看到一块空白，完全不知道是打包挂了 -->
+          <div v-if="previewBuildError" class="preview-build-error">
+            <ExclamationCircleOutlined />
+            <div class="preview-build-error-body">
+              <p class="preview-build-error-title">网站构建失败，预览暂不可用</p>
+              <p class="preview-build-error-detail">{{ previewBuildError }}</p>
+              <p class="preview-build-error-tip">
+                重新发送一条消息即可触发重新构建；若一直失败，请把上面的原因提供给后端排查。
+              </p>
+            </div>
+          </div>
           <iframe
             v-if="previewUrl"
             :key="previewKey"
@@ -416,6 +432,17 @@ const editMode = ref(false)
 const selectedElement = ref<VisualEditorElement | null>(null)
 /** 可视化编辑开不起来时的原因（展示在预览面板标题旁，避免静默失败） */
 const editError = ref('')
+/**
+ * Vue 工程构建失败原因（后端 buildStatus=failed 时的 buildError）
+ * <p>
+ * 构建失败意味着 dist 没有产出，预览区只能是一片空白/404；把后端的真实原因展示出来，
+ * 用户才知道该重新生成还是该反馈给后端，而不是对着空白页发呆（实测问题）。
+ */
+const previewBuildError = ref('')
+/** 本轮生成是否已经用 toast 提示过构建失败（只提示一次，避免轮询期间反复弹） */
+let buildErrorNotified = false
+/** 兜底文案：后端没给出原因时使用 */
+const DEFAULT_BUILD_ERROR = 'Vue 工程打包失败，未生成可预览的产物'
 const messageListRef = ref<HTMLElement | null>(null)
 const renameModalOpen = ref(false)
 const renameValue = ref('')
@@ -691,11 +718,13 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
   const targetAppId = appId.value
   void (async () => {
     let buildStatus = ''
+    let buildError = ''
     // 服务端是否已经没有这个应用的生成任务（后端重启后注册表清空、或这一轮早就结束了）
     let noTask = false
     try {
       const res = await getGenStatus({ appId: targetAppId })
       buildStatus = res.data?.data?.buildStatus ?? ''
+      buildError = res.data?.data?.buildError ?? ''
       noTask = res.data?.data?.status === 'none'
     } catch {
       // 状态接口偶发失败不应阻塞预览：按"尚未完成"处理，下一轮继续查
@@ -705,15 +734,36 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
     if (token !== previewRefreshToken || targetAppId !== appId.value) {
       return
     }
+    // 构建失败：dist 没产出，预览必然是空白。展示后端给出的真实失败原因
+    if (buildStatus === BUILD_STATUS.FAILED) {
+      previewBuildError.value = buildError || DEFAULT_BUILD_ERROR
+      if (!buildErrorNotified) {
+        buildErrorNotified = true
+        error(`构建失败：${previewBuildError.value}`)
+      }
+      // failed 也刷新：让用户看到当前产物或 404 提示，而不是永远停在旧页
+      refreshPreview()
+      return
+    }
     // 服务端没有任务 = 没有任何东西在构建，等待毫无意义：直接刷新预览。
     // 否则会一直按 PREVIEW_BUILD_POLL_INTERVAL 轮询到上限（实测：后端日志里
     // SELECT user / SELECT app 两条 SQL 持续刷屏，而预览区一直空白）。
     if (noTask) {
+      // 没有任务又没有产物（buildStatus != finished）：说明这一轮的构建没有成功，
+      // 预览同样是空白，同样要给出解释，而不是静默刷新
+      if (buildStatus !== BUILD_STATUS.FINISHED) {
+        previewBuildError.value = DEFAULT_BUILD_ERROR
+        if (!buildErrorNotified) {
+          buildErrorNotified = true
+          error(`构建失败：${previewBuildError.value}`)
+        }
+      }
       refreshPreview()
       return
     }
-    if (buildStatus === BUILD_STATUS.FINISHED || buildStatus === BUILD_STATUS.FAILED) {
-      // failed 也刷新：让用户看到当前产物或 404 提示，而不是永远停在旧页
+    if (buildStatus === BUILD_STATUS.FINISHED) {
+      // 构建成功：清掉上一轮的失败提示
+      previewBuildError.value = ''
       refreshPreview()
       return
     }
@@ -854,6 +904,9 @@ const genCode = async (prompt: string) => {
 
   generating.value = true
   previewUrl.value = ''
+  // 新一轮生成：清掉上一轮的构建失败提示，避免旧提示残留误导用户
+  previewBuildError.value = ''
+  buildErrorNotified = false
   await scrollToBottom()
 
   activeGenerationWatch?.()
@@ -2080,6 +2133,57 @@ onBeforeUnmount(() => {
   background: #fff;
   border: 1px solid #e6eefb;
   border-radius: 10px;
+}
+
+/* 构建失败提示条：贴在预览区顶部，不遮挡可能存在的旧产物 */
+.preview-build-error {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  color: #cf3b56;
+  border: 1px solid #ffd8df;
+  border-radius: 10px;
+  background: rgb(255 246 248 / 96%);
+  box-shadow: 0 6px 18px rgb(207 59 86 / 12%);
+}
+
+.preview-build-error :deep(.anticon) {
+  margin-top: 2px;
+  color: inherit;
+  font-size: 16px;
+}
+
+.preview-build-error-body {
+  min-width: 0;
+}
+
+.preview-build-error-title {
+  margin: 0;
+  color: #cf3b56;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.preview-build-error-detail {
+  max-height: 96px;
+  margin: 4px 0 0;
+  overflow-y: auto;
+  color: #8a4a58;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.preview-build-error-tip {
+  margin: 4px 0 0;
+  color: #a3737f;
+  font-size: 12px;
 }
 
 .preview-placeholder {

@@ -5,6 +5,7 @@ import css from 'highlight.js/lib/languages/css'
 import javascript from 'highlight.js/lib/languages/javascript'
 import xml from 'highlight.js/lib/languages/xml'
 import 'highlight.js/styles/github.css'
+import { normalizeCodeFences } from './codeFence'
 
 // 只注册需要的语言，避免把 highlight.js 的全量语言包打进产物
 // xml 已覆盖 html/xhtml/svg 等别名，javascript 已覆盖 js/jsx 等别名
@@ -44,5 +45,12 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     : self.renderToken(tokens, idx, options)
 }
 
-/** 把 Markdown 文本渲染成 HTML 字符串 */
-export const renderMarkdown = (content?: string) => markdown.render(content ?? '')
+/**
+ * 把 Markdown 文本渲染成 HTML 字符串
+ *
+ * 渲染前先做一次代码围栏容错：模型偶尔会把语言标签和代码写在同一行
+ * （` ```jsconst line = new THREE.LineLoop(geo, mat)`），按 CommonMark 这整行都是 info string，
+ * 代码体变成空 → 页面出现"空白代码块"。规整后代码不再丢失（详见 utils/codeFence.ts）。
+ */
+export const renderMarkdown = (content?: string) =>
+  markdown.render(normalizeCodeFences(content ?? ''))
