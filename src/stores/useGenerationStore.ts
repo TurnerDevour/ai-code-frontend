@@ -33,6 +33,16 @@ export type GenerationStatus = 'idle' | 'running' | 'done' | 'error' | 'stopped'
 /** 生成会话快照（UI 订阅与回放都用它） */
 export interface GenerationSession {
   appId: string
+  /**
+   * 本轮生成轮次标识（每次 startGeneration 都会变）
+   *
+   * 为什么需要它：会话按 appId 保存，第 2 轮开始时会把 content 重置为空。
+   * 如果 UI 只按 `content.length` 判断增量，上一轮遗留的订阅会把"长度从 0 重新增长"
+   * 误判成"内容变短了"，于是第一轮消息被清空、又被第二轮的流重新填满（表现为
+   * 第一轮内容突然消失，随后跟着第二轮一起流式生成，甚至两条都变空白）。
+   * 带上轮次标识后，订阅先比对轮次：轮次不同就直接解绑，不触碰任何消息。
+   */
+  roundId: string
   /** 当前状态 */
   status: GenerationStatus
   /** 累积的展示内容（Markdown 源码） */
@@ -61,8 +71,12 @@ export interface GenerationSession {
   lastFrameAt: number
 }
 
+/** 轮次标识自增种子：同一毫秒内的两轮也不会重号 */
+let roundSeed = 0
+
 const createSession = (appId: string): GenerationSession => ({
   appId,
+  roundId: `round-${Date.now()}-${++roundSeed}`,
   status: 'running',
   content: '',
   toolExecutions: [],
@@ -151,6 +165,8 @@ const restoreSession = (appId: string): GenerationSession | null => {
     parsed.lastSeq = parsed.lastSeq ?? 0
     parsed.appliedSeq = parsed.appliedSeq ?? 0
     parsed.lastFrameAt = parsed.lastFrameAt ?? parsed.startedAt ?? Date.now()
+    // 旧快照没有轮次标识：补一个，保证「按轮次解绑」的比较逻辑对它同样成立
+    parsed.roundId = parsed.roundId ?? `round-restored-${parsed.startedAt ?? Date.now()}`
     if (parsed.status === 'running') {
       parsed.status = 'stopped'
       parsed.errorMessage = ''
@@ -201,6 +217,19 @@ export const useGenerationStore = defineStore('generation', () => {
     }
     return null
   }
+
+  /**
+   * 读取「当前这一轮」会话（不做落盘恢复）
+   *
+   * 页面用它区分「我正在订阅的那一轮」是否已经被新一轮替换：
+   * 新一轮 startGeneration 会整体替换会话对象，因此引用比较即可判断订阅是否过期。
+   *
+   * @param appId 应用 id
+   *
+   * @returns 当前会话（没有则为 null）
+   */
+  const getCurrentSession = (appId: string): GenerationSession | null =>
+    sessions.value[appId] ?? null
 
   /**
    * 落盘（节流）：流式过程中最多每 PERSIST_INTERVAL_MS 写一次，
@@ -348,7 +377,12 @@ export const useGenerationStore = defineStore('generation', () => {
               return
             }
             controllers.set(appId, new AbortController())
-            runGeneration(session, '/app/chat/gen/resume', { appId, fromSeq: session.lastSeq }, attempt + 1)
+            runGeneration(
+              session,
+              '/app/chat/gen/resume',
+              { appId, fromSeq: session.lastSeq },
+              attempt + 1,
+            )
           }, delay)
           return
         }
@@ -446,6 +480,7 @@ export const useGenerationStore = defineStore('generation', () => {
     hasRunningSession,
     isGenerating,
     getSession,
+    getCurrentSession,
     startGeneration,
     resumeGeneration,
     abortGeneration,

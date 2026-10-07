@@ -217,6 +217,10 @@ declare namespace API {
     lastSeq?: number
     errorMessage?: string
     running?: boolean
+    /** 生成结束后的构建状态（Vue 工程）：idle / running / finished / failed */
+    buildStatus?: string
+    /** 构建失败原因（buildStatus=failed） */
+    buildError?: string
   }
 
   type getAppVOByIdByAdminParams = {

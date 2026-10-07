@@ -314,7 +314,7 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { deleteApp, downloadApp, getAppVoById, updateApp } from '@/api/appController'
+import { deleteApp, downloadApp, getAppVoById, getGenStatus, updateApp } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
@@ -328,15 +328,8 @@ import {
   saveBlobAsFile,
 } from '@/utils/fileDownload'
 import { renderMarkdown } from '@/utils/markdown'
-import {
-  useGenerationStore,
-  type GenerationSession,
-} from '@/stores/useGenerationStore'
-import {
-  STREAM_MESSAGE_TYPE,
-  parseStreamMessage,
-  parseToolArguments,
-} from '@/utils/streamMessage'
+import { useGenerationStore, type GenerationSession } from '@/stores/useGenerationStore'
+import { STREAM_MESSAGE_TYPE, parseStreamMessage, parseToolArguments } from '@/utils/streamMessage'
 import { parseTime } from '@/utils/time'
 import {
   buildVisualEditPrompt,
@@ -353,6 +346,7 @@ import {
   CHAT_MESSAGE_TYPE,
   MIN_CHAT_HISTORY_FOR_PREVIEW,
 } from '@/constant/chat'
+import { CODE_GEN_TYPE } from '@/constant/codeGenType'
 import { DEPLOY_STATUS } from '@/constant/deploy'
 
 interface ChatMessage {
@@ -376,6 +370,7 @@ const loginUserStore = useLoginUserStore()
 const {
   isGenerating,
   getSession: getGenerationSession,
+  getCurrentSession,
   startGeneration,
   resumeGeneration,
   abortGeneration,
@@ -448,7 +443,9 @@ const {
 // 部署按钮：仅在"进行中"（排队中/部署中）置灰。
 // 已部署但代码改过（deployStale）时允许重新部署——否则用户改完应用只能一直看旧站点。
 const deployDisabled = computed(
-  () => deployInProgress.value || (deployStatusValue.value === DEPLOY_STATUS.READY && !deployStale.value),
+  () =>
+    deployInProgress.value ||
+    (deployStatusValue.value === DEPLOY_STATUS.READY && !deployStale.value),
 )
 
 // 部署按钮文案：已部署（代码无改动）、代码有更新（重新部署）、上次失败（重试）、未部署
@@ -686,6 +683,210 @@ const loadMoreHistory = async () => {
   }
 }
 
+/**
+ * 按 id 定位页面上的某条消息，保证流式追加时响应式更新
+ *
+ * @param messageId 消息 id
+ *
+ * @returns 更新函数（消息已被移除时什么都不做）
+ */
+const createMessageUpdater = (messageId: string) => (updater: (target: ChatMessage) => void) => {
+  const target = sessionMessages.value.find((item) => item.id === messageId)
+  if (target) {
+    updater(target)
+  }
+}
+
+/** 比较内容时忽略空白差异：服务端落库时会 trim，前端快照可能带首尾空白 */
+const normalizeForCompare = (text: string) => text.replace(/\s+/g, '')
+
+/** 构建状态取值（与后端 GenerationStatusVO.buildStatus 一致） */
+const BUILD_STATUS = {
+  IDLE: 'idle',
+  RUNNING: 'running',
+  FINISHED: 'finished',
+  FAILED: 'failed',
+} as const
+/** 预览刷新轮询间隔：Vue 构建通常 10~60 秒，1.5 秒粒度足够且不打扰后端 */
+const PREVIEW_BUILD_POLL_INTERVAL = 1500
+/** 轮询上限：超过后不再等待（构建异常时不能让页面一直转） */
+const PREVIEW_BUILD_POLL_MAX_ATTEMPTS = 80
+
+/** 预览刷新轮询定时器：切换应用/组件卸载时必须停掉 */
+let previewRefreshTimer: number | undefined
+/** 轮询代数：新一轮生成开始时让上一次的轮询自然失效 */
+let previewRefreshToken = 0
+
+/** 停止预览刷新轮询（切换应用、组件卸载、生成失败时调用） */
+const stopPreviewRefreshPolling = () => {
+  previewRefreshToken += 1
+  if (previewRefreshTimer !== undefined) {
+    window.clearTimeout(previewRefreshTimer)
+    previewRefreshTimer = undefined
+  }
+}
+
+/**
+ * 生成本轮产出后的预览刷新编排
+ *
+ * 问题 2 的修复：Vue 工程的 dist 是生成结束后由后端**异步构建**出来的，旧实现收到 done 就
+ * 立即刷新 iframe，此时 dist 往往还不存在（首轮）或仍是上一次的构建产物，于是预览区一片空白，
+ * 必须用户手动点刷新。这里改成：先查构建状态，未完成就轮询到 finished/failed 再刷新。
+ *
+ * @param attempt 已轮询次数（内部递归使用）
+ */
+const refreshPreviewAfterGeneration = (attempt = 0) => {
+  // 静态模式（HTML / 多文件）：产物在生成结束时就已落盘，直接刷新
+  if (app.value.codeGenType !== CODE_GEN_TYPE.VUE_PROJECT) {
+    refreshPreview()
+    return
+  }
+  const token = previewRefreshToken
+  const targetAppId = appId.value
+  void (async () => {
+    let buildStatus = ''
+    try {
+      const res = await getGenStatus({ appId: targetAppId })
+      buildStatus = res.data?.data?.buildStatus ?? ''
+    } catch {
+      // 状态接口偶发失败不应阻塞预览：按"尚未完成"处理，下一轮继续查
+      buildStatus = ''
+    }
+    // 轮询期间用户切换了应用或又发起了一轮生成：放弃本次刷新
+    if (token !== previewRefreshToken || targetAppId !== appId.value) {
+      return
+    }
+    if (buildStatus === BUILD_STATUS.FINISHED || buildStatus === BUILD_STATUS.FAILED) {
+      // failed 也刷新：让用户看到当前产物或 404 提示，而不是永远停在旧页
+      refreshPreview()
+      return
+    }
+    if (attempt >= PREVIEW_BUILD_POLL_MAX_ATTEMPTS) {
+      // 超时兜底：刷新一次，避免预览区一直空白
+      refreshPreview()
+      return
+    }
+    previewRefreshTimer = window.setTimeout(
+      () => refreshPreviewAfterGeneration(attempt + 1),
+      PREVIEW_BUILD_POLL_INTERVAL,
+    )
+  })()
+}
+
+/** 统一的「生成结束后刷新预览」入口：先停掉上一轮轮询，再按需等待后端构建 */
+const schedulePreviewRefresh = () => {
+  stopPreviewRefreshPolling()
+  refreshPreviewAfterGeneration()
+}
+
+/**
+ * 订阅某一轮生成会话，把它累积的内容与终态同步到页面上的一条 AI 消息
+ *
+ * 关键点（本体是问题 1 的修复）：
+ *   1. 订阅被钉在「发起时的那个会话对象」上。store 里每一轮生成都会整体替换会话对象，
+ *      因此回调里只要发现自己的会话不再是当前会话，就立刻解绑——上一轮的订阅绝不会
+ *      再去修改任何消息（旧实现按 content.length 增量同步，第 2 轮把长度重置为 0 时
+ *      会被误判成"内容变短"，于是清空第一轮消息、再被第二轮的流灌满）；
+ *   2. 同步按「已同步前缀」比对：内容仍以已同步部分开头时只追加差异，
+ *      否则（会话被重建/内容被改写）整体重建并立即渲染，不会出现半截内容；
+ *   3. 会话进入终态（done/error/stopped）后自动解绑，避免订阅长期挂着；
+ *   4. 出错时只提示一次，且不再刷新预览，避免展示半成品。
+ *
+ * @param session     要订阅的会话对象（必须是当时 store 里的当前会话）
+ * @param messageId   同步到哪条 AI 消息
+ * @param hooks       onFinished 终态回调（用于刷新预览）
+ *
+ * @returns 解绑函数
+ */
+const watchGenerationSession = (
+  session: GenerationSession,
+  messageId: string,
+  hooks: { onFinished?: () => void } = {},
+) => {
+  const targetAppId = appId.value
+  const updateAiMessage = createMessageUpdater(messageId)
+  // 已同步进 UI 的内容：用前缀比对代替长度比对，避免"长度变小"引发整体清空
+  let syncedContent = ''
+  // 出错提示只弹一次
+  let errorNotified = false
+  // 订阅是否已解绑：避免终态回调重复触发预览刷新
+  let detached = false
+  const stopWatch = watch(
+    () => `${session.content.length}:${session.status}`,
+    () => {
+      // 会话已被新一轮替换（或被清理）：本轮订阅立即失效，不再触碰任何消息
+      if (detached || getCurrentSession(targetAppId) !== session) {
+        detached = true
+        stopWatch()
+        return
+      }
+      const content = session.content
+      const finished = session.status !== 'running'
+      if (content && !content.startsWith(syncedContent)) {
+        // 内容不是简单追加（例如会话被重建）：整体重建
+        syncedContent = content
+        updateAiMessage((target) => {
+          target.content = content
+        })
+      } else if (content.length > syncedContent.length) {
+        const delta = content.slice(syncedContent.length)
+        syncedContent = content
+        updateAiMessage((target) => {
+          target.content += delta
+        })
+        scrollToBottom()
+      }
+      if (session.status === 'error') {
+        if (!errorNotified) {
+          errorNotified = true
+          updateAiMessage((target) => {
+            target.status = 'error'
+            target.errorMessage = session.errorMessage || '生成失败，请重试'
+            flushMarkdown(target)
+          })
+          message.error('生成失败：' + (session.errorMessage || '请重试')).then(() => {})
+        }
+        generating.value = false
+        if (!detached) {
+          detached = true
+          stopWatch()
+          stopPreviewRefreshPolling()
+        }
+        return
+      }
+      if (session.status === 'done' || session.status === 'stopped') {
+        generating.value = false
+        updateAiMessage((target) => {
+          target.status = 'done'
+          flushMarkdown(target)
+        })
+        if (!detached) {
+          detached = true
+          stopWatch()
+          // 本轮产出已就绪：Vue 工程要等后端构建完成再刷新，静态模式立即刷新
+          hooks.onFinished?.()
+        }
+        return
+      }
+      // 生成中：节流渲染，结束后用终态分支做一次完整渲染
+      updateAiMessage((target) => (finished ? flushMarkdown(target) : scheduleMarkdown(target)))
+    },
+    { immediate: true },
+  )
+  // 立即把已有快照渲染出来（刷新页面后重新订阅时会用到）
+  if (session.content) {
+    syncedContent = session.content
+    updateAiMessage((target) => {
+      target.content = session.content
+      flushMarkdown(target)
+    })
+  }
+  return () => {
+    detached = true
+    stopWatch()
+  }
+}
+
 // 调用 SSE 接口生成代码
 // 生成请求挂在全局 store 上（useGenerationStore）：用户点返回/关闭页面时不会掐断连接，
 // 而是保持生成继续、把结果接住；回到页面时从 store 快照恢复已生成的内容。
@@ -701,175 +902,100 @@ const genCode = async (prompt: string) => {
     html: '',
     status: 'loading',
   })
-  // 通过 id 定位消息，保证流式追加时响应式更新
-  const updateAiMessage = (updater: (message: ChatMessage) => void) => {
-    const target = sessionMessages.value.find((item) => item.id === aiMessageId)
-    if (target) {
-      updater(target)
-    }
-  }
-  // 已同步进 UI 的内容长度：离开页面再回来时该值为 0，会从 store 快照整体重建
-  let syncedLength = 0
-  // 本次生成是否已失败：失败后不再刷新预览，避免展示半成品
-  let hasError = false
-  // 保证「流式全部返回后展示网站」只会触发一次
-  let previewShown = false
-  const showGeneratedWebsite = () => {
-    if (previewShown || hasError) {
-      return
-    }
-    previewShown = true
-    refreshPreview()
-  }
-  // 把 store 里累积的内容同步到当前页面消息（增量追加；回放时一次性重建并立即渲染）
-  const syncContent = (forceRender = false) => {
-    const session = getGenerationSession(appId.value)
-    const content = session?.content ?? ''
-    if (content.length < syncedLength) {
-      // store 内容变短（会话被重置）：整体重建
-      syncedLength = 0
-      updateAiMessage((target) => {
-        target.content = ''
-      })
-    }
-    if (content.length > syncedLength) {
-      const delta = content.slice(syncedLength)
-      syncedLength = content.length
-      updateAiMessage((target) => {
-        target.content += delta
-      })
-      scrollToBottom()
-    }
-    if (forceRender) {
-      updateAiMessage((target) => flushMarkdown(target))
-    } else {
-      updateAiMessage((target) => scheduleMarkdown(target))
-    }
-  }
-  // 处理 store 的终态：错误展示 / 完成标记 / 停止标记 / 预览刷新
-  const syncFinalState = (session: GenerationSession | null) => {
-    if (!session) {
-      return
-    }
-    if (session.status === 'error') {
-      if (!hasError) {
-        hasError = true
-        updateAiMessage((target) => {
-          target.status = 'error'
-          target.errorMessage = session.errorMessage || '生成失败，请重试'
-          flushMarkdown(target)
-        })
-        message.error('生成失败：' + (session.errorMessage || '请重试')).then(() => {})
-      }
-      generating.value = false
-      return
-    }
-    if (session.status === 'stopped') {
-      updateAiMessage((target) => {
-        target.status = 'done'
-        flushMarkdown(target)
-      })
-      generating.value = false
-      return
-    }
-    if (session.status === 'done') {
-      updateAiMessage((target) => {
-        target.status = 'done'
-        flushMarkdown(target)
-      })
-      generating.value = false
-      showGeneratedWebsite()
-    }
-  }
 
   generating.value = true
   previewUrl.value = ''
   await scrollToBottom()
 
-  // 订阅 store 的变化：内容增长 + 状态变化
-  const stopWatch = watch(
-    () => {
-      const session = getGenerationSession(appId.value)
-      return `${session?.content.length ?? 0}:${session?.status ?? 'none'}`
-    },
-    () => {
-      const session = getGenerationSession(appId.value)
-      const finished = !!session && session.status !== 'running'
-      syncContent(finished)
-      syncFinalState(session)
-    },
-    { immediate: true },
-  )
-  // 组件卸载时只解除订阅（不中断生成），因此这里把清理函数登记下来
-  activeGenerationWatch = stopWatch
-
+  // 先解除上一轮遗留的订阅与预览轮询（它们属于已经结束的那一轮），再发起新一轮生成。
+  // 否则「等构建完成再刷新预览」的定时器会把上一轮的产物刷到新一轮的界面上。
+  activeGenerationWatch?.()
+  activeGenerationWatch = null
+  stopPreviewRefreshPolling()
   startGeneration(appId.value, prompt)
+  // startGeneration 之后取会话：保证订阅的是本轮的新会话对象
+  const session = getCurrentSession(appId.value)
+  if (!session) {
+    generating.value = false
+    return
+  }
+  activeGenerationWatch = watchGenerationSession(session, aiMessageId, {
+    onFinished: () => schedulePreviewRefresh(),
+  })
 }
 
 /**
- * 把 store 里某个应用正在进行的生成"接回"到页面上的一条 AI 消息
- * <p>
- * 用于整页刷新/浏览器返回后的续订场景：内容继续在 store 里累积，这里负责把它同步到消息上。
- * 新的生成由 {@link genCode} 内部自己完成订阅，不走这里。
+ * 判断某个会话的内容是否已经完整落在对话历史里
  *
- * @param aiMessageId 要同步的 AI 消息 id
+ * 生成结束后服务端会把这一轮内容写入对话历史，刷新页面时历史接口可能已经能查到它；
+ * 这时若无条件再插一条"会话恢复"消息，就会看到两条一模一样的回复。
+ *
+ * @param content 会话里累积的内容
+ *
+ * @returns 历史里是否已有等价的 AI 消息
  */
-const attachGenerationToMessage = (aiMessageId: string) => {
-  // 已同步进 UI 的内容长度：页面重新挂载后从 0 开始，会按快照整体重建
-  let syncedLength = 0
-  let hasError = false
-  const updateAiMessage = (updater: (message: ChatMessage) => void) => {
-    const target = sessionMessages.value.find((item) => item.id === aiMessageId)
-    if (target) {
-      updater(target)
-    }
+const isContentAlreadyInHistory = (content: string) => {
+  const normalized = normalizeForCompare(content)
+  if (!normalized) {
+    return false
   }
-  const stopWatch = watch(
-    () => {
-      const session = getGenerationSession(appId.value)
-      return `${session?.content.length ?? 0}:${session?.status ?? 'none'}`
-    },
-    () => {
-      const session = getGenerationSession(appId.value)
-      const content = session?.content ?? ''
-      const finished = !!session && session.status !== 'running'
-      if (content.length < syncedLength) {
-        // 内容变短（会话被重置）：整体重建
-        syncedLength = 0
-        updateAiMessage((target) => {
-          target.content = ''
-        })
-      }
-      if (content.length > syncedLength) {
-        const delta = content.slice(syncedLength)
-        syncedLength = content.length
-        updateAiMessage((target) => {
-          target.content += delta
-        })
-        scrollToBottom()
-      }
-      if (session?.status === 'error' && !hasError) {
-        hasError = true
-        updateAiMessage((target) => {
-          target.status = 'error'
-          target.errorMessage = session.errorMessage || '生成失败，请重试'
-          flushMarkdown(target)
-        })
-        generating.value = false
-        return
-      }
-      if (session?.status === 'done' || session?.status === 'stopped') {
-        updateAiMessage((target) => {
-          target.status = 'done'
-          flushMarkdown(target)
-        })
-        generating.value = false
-      }
-      updateAiMessage((target) => (finished ? flushMarkdown(target) : scheduleMarkdown(target)))
-    },
-    { immediate: true },
+  return historyMessages.value.some(
+    (item) => item.role === 'ai' && normalizeForCompare(item.content) === normalized,
   )
-  activeGenerationWatch = stopWatch
+}
+
+/**
+ * 从全局生成会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回后的场景）
+ * <p>
+ * 生成请求挂在 store（并持久化到 sessionStorage + 帧序号），所以刷新后内容还在；
+ * 但此时历史接口里可能还没有这条 AI 消息，需要主动把它渲染出来。
+ * <p>
+ * 另外：如果这一轮生成其实还在服务端跑（会话里记着帧序号），这里会用
+ * `/app/chat/gen/resume?fromSeq=` 把订阅接回来，服务端补发缺失的帧后继续实时推送，
+ * 因此刷新不会丢掉"离开期间"生成的内容，也不会重复渲染已经看过的部分。
+ *
+ * @returns 是否恢复出了内容
+ */
+const recoverSessionMessage = () => {
+  const targetAppId = appId.value
+  if (!targetAppId) {
+    return false
+  }
+  const session = getGenerationSession(targetAppId)
+  if (!session) {
+    return false
+  }
+  const resuming = resumeGeneration(targetAppId)
+  const current = getCurrentSession(targetAppId)
+  if (!current) {
+    return false
+  }
+  // 已经完成且历史里已落库：交给历史渲染，避免重复展示同一轮回复
+  if (!resuming && current.status === 'done' && isContentAlreadyInHistory(current.content)) {
+    return false
+  }
+  // 恢复出的 AI 消息挂在 sessionMessages 里（历史消息之后），并按会话内容整体重建
+  const messageId = createMessageIdGenerator()
+  sessionMessages.value.push({
+    id: messageId,
+    role: 'ai',
+    content: current.content,
+    html: renderMarkdown(current.content),
+    status: resuming || current.status === 'running' ? 'loading' : 'done',
+    errorMessage: current.errorMessage || undefined,
+  })
+  generating.value = resuming || current.status === 'running'
+  if (resuming) {
+    // 续订中：内容会继续在 store 里累积，订阅它继续渲染
+    activeGenerationWatch?.()
+    activeGenerationWatch = watchGenerationSession(current, messageId, {
+      onFinished: () => schedulePreviewRefresh(),
+    })
+  } else if (!generating.value) {
+    // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
+    schedulePreviewRefresh()
+  }
+  return true
 }
 
 // 是否已达到输入上限（达到后计数器转为警示色，与首页输入框一致）
@@ -913,7 +1039,9 @@ const handlePressEnter = (event: KeyboardEvent) => {
 }
 
 // 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
+// 用户主动刷新时（菜单/按钮）先停掉自动轮询，避免和用户操作互相打断
 const refreshPreview = () => {
+  stopPreviewRefreshPolling()
   // 重新加载往往能解决「脚本没注入」这类问题，先清掉上一次的失败提示
   editError.value = ''
   previewUrl.value = buildPreviewUrl()
@@ -985,7 +1113,9 @@ const handleDownload = async () => {
     const reason = await parseResponseErrorMessage(
       (error as { response?: { data?: unknown } })?.response?.data,
     )
-    message.error('下载失败，' + (reason || (error as Error)?.message || '请稍后重试')).then(() => {})
+    message
+      .error('下载失败，' + (reason || (error as Error)?.message || '请稍后重试'))
+      .then(() => {})
   } finally {
     downloading.value = false
   }
@@ -1058,58 +1188,6 @@ const handleDetailDelete = async () => {
 }
 
 // 进入对话页的初始化：拉取应用详情 -> 加载历史消息 -> 按需自动生成 -> 展示网站
-/**
- * 从全局生成会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回后的场景）
- * <p>
- * 生成请求挂在 store（并持久化到 sessionStorage + 帧序号），所以刷新后内容还在；
- * 但此时历史接口里可能还没有这条 AI 消息，需要主动把它渲染出来。
- * <p>
- * 另外：如果这一轮生成其实还在服务端跑（会话里记着帧序号），这里会用
- * `/app/chat/gen/resume?fromSeq=` 把订阅接回来，服务端补发缺失的帧后继续实时推送，
- * 因此刷新不会丢掉"离开期间"生成的内容，也不会重复渲染已经看过的部分。
- *
- * @returns 是否恢复出了内容
- */
-const recoverSessionMessage = () => {
-  const targetAppId = appId.value
-  if (!targetAppId) {
-    return false
-  }
-  const session = getGenerationSession(targetAppId)
-  if (!session) {
-    return false
-  }
-  // 真正还在生成的会话：用帧序号接回订阅（服务端补发缺失帧后继续推送）
-  const resuming = resumeGeneration(targetAppId)
-  const existing = sessionMessages.value.find((item) => item.role === 'ai')
-  if (existing) {
-    if (resuming) {
-      // 已有消息（例如历史里已经落库的这条）：把 store 的新内容继续同步到它上面
-      generating.value = true
-      attachGenerationToMessage(existing.id)
-    }
-    return true
-  }
-  const messageId = createMessageIdGenerator()
-  sessionMessages.value.push({
-    id: messageId,
-    role: 'ai',
-    content: session.content,
-    html: renderMarkdown(session.content),
-    status: resuming || session.status === 'running' ? 'loading' : 'done',
-    errorMessage: session.errorMessage || undefined,
-  })
-  generating.value = resuming || session.status === 'running'
-  if (resuming) {
-    // 续订中：内容会继续在 store 里累积，订阅它继续渲染
-    attachGenerationToMessage(messageId)
-  } else if (!generating.value) {
-    // 已中断/已完成：把产出展示出来，避免用户以为"白等了"
-    refreshPreview()
-  }
-  return true
-}
-
 const initPage = async () => {
   await fetchApp()
   // 刷新页面 / 重新进入详情后恢复部署进度：仍在排队或构建中会自动继续轮询
@@ -1160,6 +1238,8 @@ watch(
     activeGenerationWatch?.()
     activeGenerationWatch = null
     clearMarkdownTimers()
+    // 上一个应用的预览刷新轮询必须停掉，避免刷新到已经切走的应用
+    stopPreviewRefreshPolling()
     // 上一个应用的部署轮询必须停掉，避免状态串到新应用
     stopDeployPolling()
     historyMessages.value = []
@@ -1183,7 +1263,8 @@ onBeforeUnmount(() => {
   activeGenerationWatch?.()
   activeGenerationWatch = null
   clearMarkdownTimers()
-  // 停止部署轮询，避免离开页面后定时器继续请求
+  // 停止预览刷新轮询与部署轮询，避免离开页面后定时器继续请求
+  stopPreviewRefreshPolling()
   stopDeployPolling()
   // 释放 iframe 消息监听，并通知预览页复位高亮
   visualEditor.destroy()
