@@ -36,7 +36,7 @@
       <span class="detail-label">创建时间</span>
       <span class="detail-value">{{ app.createTime || '-' }}</span>
     </div>
-    <!-- 部署状态以 /app/deploy/status 的 status 字段为准，不再用 deployKey 猜测是否已部署 -->
+    <!-- 部署状态以 /app/deploy/status 的 status 字段为准，不用 deployKey 猜是否已部署 -->
     <div class="detail-row">
       <span class="detail-label">部署状态</span>
       <a-tooltip :title="deployTip">
@@ -52,24 +52,17 @@
       <span class="detail-value">{{ deployedTime }}</span>
     </div>
 
-    <!-- 操作栏：仅应用本人或管理员可见 -->
     <template v-if="canManage" #footer>
       <a-button class="app-modal-button detail-edit-button" @click="emit('edit')">
         <EditOutlined />
         修改
       </a-button>
-      <a-popconfirm
-        title="确定要删除该应用吗？删除后不可恢复"
-        ok-text="确定"
-        cancel-text="取消"
-        placement="topRight"
-        @confirm="emit('delete')"
-      >
+      <DeleteAppButton @confirm="emit('delete')">
         <a-button class="app-modal-button detail-delete-button" :loading="deleting">
           <DeleteOutlined />
           删除
         </a-button>
-      </a-popconfirm>
+      </DeleteAppButton>
     </template>
   </AppModal>
 </template>
@@ -82,20 +75,19 @@ import AppPriorityTag from '@/components/AppPriorityTag.vue'
 import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
 import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
 import DeployStatusTag from '@/components/DeployStatusTag.vue'
+import DeleteAppButton from '@/components/DeleteAppButton.vue'
 import { describeDeployStatus } from '@/utils/deploy'
 import { formatDateTime } from '@/utils/time'
 
 const props = withDefaults(
   defineProps<{
-    /** 是否显示，配合 v-model:open 使用 */
+    /** 配合 v-model:open 使用 */
     open?: boolean
-    /** 应用信息 */
     app: API.AppVO
     /** 部署状态（来自 GET /app/deploy/status），未传时展示「未部署」 */
     deployStatus?: API.DeployStatusVO | null
     /** 是否展示「修改 / 删除」操作（本人或管理员） */
     canManage?: boolean
-    /** 删除请求进行中 */
     deleting?: boolean
   }>(),
   {
@@ -114,15 +106,11 @@ const emit = defineEmits<{
 
 const coverText = computed(() => (props.app.appName || '未')[0])
 
-/** 部署状态的悬浮说明：排队进度、失败原因都在这里展示 */
+/** 悬浮说明：排队进度与失败原因 */
 const deployTip = computed(() => describeDeployStatus(props.deployStatus))
 
-/**
- * 部署时间：仅部署成功后由后端下发
- * <p>
- * 该字段后端给的是 ISO 8601（如 `2026-10-07T13:45:08`），与上面的「创建时间」写法不一致，
- * 这里统一格式化成 `YYYY-MM-DD HH:mm:ss` 再展示
- */
+/** 部署时间仅部署成功后由后端下发，且是 ISO 8601（如 2026-10-07T13:45:08），
+ *  与「创建时间」的写法不一致，故统一格式化成 YYYY-MM-DD HH:mm:ss */
 const deployedTime = computed(() => formatDateTime(props.deployStatus?.deployedTime))
 
 const handleOpenChange = (value: boolean) => {
@@ -130,7 +118,7 @@ const handleOpenChange = (value: boolean) => {
 }
 </script>
 
-<!-- 弹窗会被 teleport 到 body，作用域选择器无法命中内部节点，因此统一使用 :global -->
+<!-- 弹窗被 teleport 到 body，作用域选择器命中不了内部节点，因此统一使用 :global -->
 <style scoped>
 :global(.app-modal .detail-section-title) {
   display: flex;
@@ -190,7 +178,7 @@ const handleOpenChange = (value: boolean) => {
   min-width: 0;
 }
 
-/* 应用名称与优先级标签同一行：名称过长时省略，标签始终完整可见 */
+/* 名称与优先级标签同一行：名称过长时省略，标签始终完整可见 */
 :global(.app-modal .detail-app-head) {
   display: flex;
   justify-content: space-between;
@@ -221,8 +209,7 @@ const handleOpenChange = (value: boolean) => {
   align-items: center;
 }
 
-/* 标签保持自身尺寸：宽度不足时换行到下一行。
-   否则最后一个标签（compact 模式下 min-width: 0）会被单独压缩，
+/* 标签保持自身尺寸、宽度不足时换行：否则最后一个标签（compact 下 min-width: 0）会被单独压缩，
    配合 overflow: hidden 直接把文字裁掉，出现「默认应用」显示不全 */
 :global(.app-modal .detail-app-type > *) {
   flex: 0 0 auto;

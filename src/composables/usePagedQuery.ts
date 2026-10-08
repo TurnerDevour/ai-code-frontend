@@ -1,32 +1,31 @@
 /**
  * 分页列表查询的组合式函数。
  *
- * 背景：首页的两块列表 + 三个后台管理页此前各自重复了同一套「分页查询」样板：
- *   dataList / total / loading 三个 ref、reactive 的查询条件、pagination 计算属性、
- *   fetchData / doSearch / doTableChange / 输入框清空即刷新，以及 onMounted 首次请求。
- * 六个副本里的差异只有「调哪个接口」和「页面文案」，其余完全一致，这里收敛成一份。
+ * 首页两块列表 + 三个后台管理页此前各自复制了同一套样板（dataList / total / loading、
+ * 查询条件、pagination、fetchData / doSearch / doTableChange、输入框清空刷新、首次请求），
+ * 差异只有调哪个接口，这里收敛成一份。
  */
 import { computed, onMounted, reactive, ref, type ComputedRef, type Ref } from 'vue'
-import { showResponseError, type ResponseBody } from './useMessage'
+import { showError, showResponseError, type ResponseBody } from './useMessage'
 
-/** 查询条件中与分页相关的字段 */
+/** 分页相关查询字段 */
 export interface PagedQuery {
   pageNum?: number
   pageSize?: number
 }
 
-/** 后端分页结果体（Page<T>） */
+/** 后端分页结果体 Page<T> */
 export interface PagedRecords<T> {
   records?: T[]
   totalRow?: number
 }
 
-/** 后端分页响应体（BaseResponse<Page<T>>） */
+/** 后端分页响应体 BaseResponse<Page<T>> */
 export interface PagedResponse<T> extends ResponseBody {
   data?: PagedRecords<T> | null
 }
 
-/** 分页接口的返回值（兼容 axios 的 AxiosResponse） */
+/** 分页接口返回值（兼容 axios 的 AxiosResponse） */
 export interface PagedApiResponse<T> {
   data: PagedResponse<T>
 }
@@ -40,21 +39,22 @@ export interface TablePageChange {
 export interface UsePagedQueryOptions<T, Q extends PagedQuery> {
   /** 初始查询条件（pageNum / pageSize 会被规范为 pageSize 与第 1 页） */
   initialQuery: Q
-  /** 每页数量 */
   pageSize: number
   /** 请求函数：参数加工（如空 id 转 undefined）也在这里完成 */
   fetchPage: (query: Q) => Promise<PagedApiResponse<T>>
-  /** 请求失败时的提示前缀，默认「获取数据失败」 */
+  /** 失败提示前缀，默认「获取数据失败」 */
   failPrefix?: string
-  /** 是否展示 a-table 的每页条数切换器，默认展示 */
+  /** 是否展示每页条数切换器，默认展示 */
   showSizeChanger?: boolean
   /**
    * 请求前的守卫：返回 false 时跳过本次请求并清空列表
-   * （首页在未登录时不请求「我的应用」，就是靠它收口的）
+   * （首页未登录时不请求「我的应用」就靠它收口）
    */
   beforeLoad?: () => boolean
   /** 是否在组件挂载时自动请求一次，默认是 */
   immediate?: boolean
+  /** 取记录唯一标识，默认取 `item.id` */
+  getItemId?: (item: T) => string | number | undefined
 }
 
 export interface UsePagedQueryReturn<T, Q extends PagedQuery> {
@@ -64,7 +64,7 @@ export interface UsePagedQueryReturn<T, Q extends PagedQuery> {
   total: Ref<number>
   /** 请求进行中 */
   loading: Ref<boolean>
-  /** 查询条件（直接绑定到搜索表单） */
+  /** 查询条件（直接绑定搜索表单） */
   query: Q
   /** a-table / a-pagination 的分页配置 */
   pagination: ComputedRef<{
@@ -74,21 +74,20 @@ export interface UsePagedQueryReturn<T, Q extends PagedQuery> {
     showSizeChanger: boolean
     showTotal: (value: number) => string
   }>
-  /** 按当前条件请求一页 */
   load: () => Promise<void>
-  /** 从第一页开始查询（搜索） */
   search: () => Promise<void>
-  /** a-table 的 change：切换页码或每页条数 */
   changePage: (page: TablePageChange) => Promise<void>
-  /** a-pagination 的 change：只切换页码 */
+  /** 只切换页码 */
   changePageNum: (pageNum: number) => Promise<void>
+  /**
+   * 删除一行后刷新：先本地摘掉（不依赖请求结果），再重新拉一页校准 total 与空位；
+   * 当前页被删空时先回退一页
+   */
+  reloadAfterRemove: (removedId?: string | number) => Promise<void>
   /** 搜索输入框清空时立即刷新（各列表页统一的交互） */
   handleInputClear: (event: Event) => void
 }
 
-/**
- * @param options 查询配置
- */
 export const usePagedQuery = <T, Q extends PagedQuery>(
   options: UsePagedQueryOptions<T, Q>,
 ): UsePagedQueryReturn<T, Q> => {
@@ -97,16 +96,16 @@ export const usePagedQuery = <T, Q extends PagedQuery>(
   const loading = ref(false)
   const query = reactive({ pageNum: 1, pageSize: options.pageSize, ...options.initialQuery }) as Q
 
+  const getItemId = options.getItemId ?? ((item: T) => (item as { id?: string }).id)
+
   const pagination = computed(() => ({
     current: query.pageNum ?? 1,
     pageSize: query.pageSize ?? options.pageSize,
     total: total.value,
-    // 分页条默认展示每页条数切换器，首页的 a-pagination 显式关掉
     showSizeChanger: options.showSizeChanger ?? true,
     showTotal: (value: number) => `共 ${value} 条`,
   }))
 
-  /** 清空列表（守卫拦住请求、或请求失败时使用） */
   const clear = () => {
     dataList.value = []
     total.value = 0
@@ -126,6 +125,10 @@ export const usePagedQuery = <T, Q extends PagedQuery>(
       } else {
         showResponseError(options.failPrefix ?? '获取数据失败', res.data)
       }
+    } catch {
+      // 网络异常 / 超时：保留现有列表（尤其是刚删除后本地已摘掉的那一份），只提示一次；
+      // 也不能让异常冒出去变成未处理的 Promise 拒绝
+      showError(options.failPrefix ?? '获取数据失败')
     } finally {
       loading.value = false
     }
@@ -147,7 +150,24 @@ export const usePagedQuery = <T, Q extends PagedQuery>(
     await load()
   }
 
-  // 输入框被清空时立即刷新列表，不必再点一次搜索
+  const reloadAfterRemove = async (removedId?: string | number) => {
+    if (removedId !== undefined) {
+      const removed = dataList.value.filter((item) => String(getItemId(item)) === String(removedId))
+      if (removed.length) {
+        dataList.value = dataList.value.filter(
+          (item) => String(getItemId(item)) !== String(removedId),
+        )
+        total.value = Math.max(0, total.value - removed.length)
+      }
+    }
+    // 这一页被删空了就回退一页，避免停在空页
+    const currentPage = query.pageNum ?? 1
+    if (!dataList.value.length && currentPage > 1) {
+      query.pageNum = currentPage - 1
+    }
+    await load()
+  }
+
   const handleInputClear = (event: Event) => {
     if (!(event.target as HTMLInputElement).value) {
       void search()
@@ -170,6 +190,7 @@ export const usePagedQuery = <T, Q extends PagedQuery>(
     search,
     changePage,
     changePageNum,
+    reloadAfterRemove,
     handleInputClear,
   }
 }

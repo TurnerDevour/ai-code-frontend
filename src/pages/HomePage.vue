@@ -3,7 +3,7 @@
     <div class="background-orb orb-left"></div>
     <div class="background-orb orb-right"></div>
 
-    <!-- 网站标题 + 提示词输入框 -->
+    <!-- 标题区 + 提示词输入框 -->
     <section class="hero-section">
       <h1 class="hero-title">
         <span>一句话</span>
@@ -38,18 +38,13 @@
       :page-size="HOME_PAGE_SIZE"
       :loading="myLoading"
       :can-view-chat="canViewChat"
+      :can-delete="isOwner"
       @search="doSearchMy"
       @clear="handleMySearchChange"
       @change-page="handleMyPageChange"
       @view-chat="handleViewChat"
-    >
-      <template #actions>
-        <a-button type="primary" class="create-button" @click="handleCreateBlank">
-          <PlusOutlined />
-          创建应用
-        </a-button>
-      </template>
-    </AppSection>
+      @deleted="handleAppDeleted"
+    />
 
     <!-- 精选应用 -->
     <AppSection
@@ -75,7 +70,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined } from '@ant-design/icons-vue'
 import AppSection from '@/components/AppSection.vue'
 import PromptInput from '@/components/PromptInput.vue'
 import { addApp, listGoodAppVoByPage, listMyAppVoByPage } from '@/api/appController'
@@ -90,11 +84,11 @@ import type { AiModelType } from '@/constant/aiModelType'
 import { CHAT_INPUT_MAX_LENGTH } from '@/constant/chat.ts'
 
 const router = useRouter()
-const { isLoggedIn, canViewChat } = useAccess()
-const { info, warning, fail } = useMessage()
+const { isLoggedIn, isOwner, canViewChat } = useAccess()
+const { warning, fail } = useMessage()
 
 const initPrompt = ref('')
-// 创建应用时选择的代码生成类型与 AI 模型类型（与后端 AppAddRequest 对应）
+// 新建应用时选择的类型（对应后端 AppAddRequest 字段）
 const newAppCodeGenType = ref<CodeGenType>(CODE_GEN_TYPE.MULTI_FILE)
 const newAppAiModelType = ref<AiModelType>(AI_MODEL_TYPE.DEEPSEEK_FLASH)
 const creating = ref(false)
@@ -108,6 +102,7 @@ const {
   search: doSearchMy,
   changePageNum: handleMyPageChange,
   handleInputClear: handleMySearchChange,
+  reloadAfterRemove: reloadMyApps,
 } = usePagedQuery<API.AppVO, API.AppQueryRequest>({
   initialQuery: {
     pageNum: 1,
@@ -118,7 +113,7 @@ const {
   pageSize: HOME_PAGE_SIZE,
   showSizeChanger: false,
   failPrefix: '获取我的应用失败',
-  // 未登录时不请求「我的应用」，与列表为空保持一致的展示
+  // 未登录不请求，与列表为空的表现一致
   beforeLoad: () => isLoggedIn.value,
   fetchPage: (query) => listMyAppVoByPage({ ...query }),
 })
@@ -132,6 +127,7 @@ const {
   search: doSearchGood,
   changePageNum: handleGoodPageChange,
   handleInputClear: handleGoodSearchChange,
+  reloadAfterRemove: reloadGoodApps,
 } = usePagedQuery<API.AppVO, API.AppQueryRequest>({
   initialQuery: {
     pageNum: 1,
@@ -180,15 +176,7 @@ const handleCreateApp = async (
   }
 }
 
-const handleCreateBlank = () => {
-  const input = document.querySelector<HTMLTextAreaElement>('.prompt-textarea textarea')
-  input?.focus()
-  // 现在只有中间内容区滚动，回到顶部要作用在该容器上
-  document.querySelector<HTMLElement>('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
-  info('在上方输入框描述你的应用，即可开始创建')
-}
-
-// 查看对话：先校验创建者与当前登录者是否为同一人，通过后才进入对话页
+// 仅创建者可查看自己的对话
 const handleViewChat = async (app: API.AppVO) => {
   if (!canViewChat(app)) {
     warning('无权限查看该应用')
@@ -197,6 +185,12 @@ const handleViewChat = async (app: API.AppVO) => {
   await router.push({
     path: `/app/chat/${app.id}`,
   })
+}
+
+// 删除成功后的收尾：应用可能同时出现在「我的应用」和「精选案例」，两块都要刷，否则另一块会残留卡片。
+// 用 allSettled 而非 all——任一侧失败都不该影响另一侧已完成的刷新，也不该抛出未处理的拒绝。
+const handleAppDeleted = async (app: API.AppVO) => {
+  await Promise.allSettled([reloadMyApps(app.id), reloadGoodApps(app.id)])
 }
 </script>
 
@@ -264,24 +258,6 @@ const handleViewChat = async (app: API.AppVO) => {
 .hero-input {
   max-width: 860px;
   margin: 0 auto;
-}
-
-.create-button {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  height: 38px;
-  padding: 0 18px;
-  font-weight: 600;
-  border: 0;
-  border-radius: 10px;
-  background: linear-gradient(105deg, #1677ff, #5e63f2);
-  box-shadow: 0 7px 15px rgb(40 96 224 / 20%);
-}
-
-.create-button:hover,
-.create-button:focus {
-  background: linear-gradient(105deg, #3b8cff, #7175ff) !important;
 }
 
 @media (max-width: 760px) {

@@ -1,7 +1,6 @@
 <template>
   <a-layout-header class="header" :class="{ 'is-narrow': narrowScreen }">
     <div class="header-row">
-      <!-- 左侧：Logo和标题 -->
       <div class="header-left-col">
         <router-link class="header-left-link" to="/">
           <div class="header-left">
@@ -10,7 +9,6 @@
           </div>
         </router-link>
       </div>
-      <!-- 中间：导航菜单 -->
       <div class="header-nav-col">
         <a-menu
           class="header-navigation"
@@ -20,7 +18,6 @@
           @click="handleMenuClick"
         />
       </div>
-      <!-- 右侧：用户操作区域 -->
       <div class="header-user-col">
         <div class="user-login-status">
           <template v-if="loginUserStore.loginUser.id">
@@ -135,7 +132,6 @@ const goToUserProfile = () => {
   })
 }
 
-// 用户注销
 const doLogout = async () => {
   const res = await userLogout()
   if (res.data.code === 0) {
@@ -158,15 +154,13 @@ const updateCurrentMenu = (path: string) => {
   }
 }
 
-// 高亮当前菜单项
 router.afterEach((to) => {
   updateCurrentMenu(to.path)
 })
 
 updateCurrentMenu(router.currentRoute.value.path)
 
-// 窄屏（平板 / 手机）下头部改为两行：菜单独占一行，用户区另起一行。
-// 否则 logo + 菜单 + 用户信息挤在一行里，会把头部撑得比视口更宽
+// 窄屏（<=900px）头部改两行：否则 logo + 菜单 + 用户信息挤在一行，会把头部撑得比视口更宽
 const narrowScreen = ref(false)
 const syncNarrowScreen = () => {
   narrowScreen.value = window.innerWidth <= 900
@@ -187,7 +181,7 @@ onBeforeUnmount(() => {
   padding: 0 24px;
 }
 
-/* 头部骨架：左侧固定、菜单居中、右侧用户区，均不允许把头部撑出视口 */
+/* 左固定 / 中菜单 / 右用户区，且都不把头部撑出视口 */
 .header-row {
   display: flex;
   align-items: center;
@@ -206,7 +200,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   justify-content: center;
 
-  /* min-width: 0 让中间列可以被压缩，而不是被菜单的固有宽度顶宽 */
+  /* min-width: 0：让中间列可被压缩，而不是被菜单的固有宽度顶宽 */
   min-width: 0;
 }
 
@@ -316,7 +310,7 @@ onBeforeUnmount(() => {
   transition: color 0.22s ease;
 }
 
-/* 选中态用底部渐变细线表示：不再用整块蓝色底，避免只有一项时格外突兀 */
+/* 选中态用底部渐变细线，避免整块蓝底在只有一项时格外突兀 */
 .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item)::after,
 .header-navigation :deep(.ant-menu-horizontal > .ant-menu-submenu)::after {
   position: absolute;
@@ -358,7 +352,7 @@ onBeforeUnmount(() => {
   font-size: 15px;
 }
 
-/* —— 窄屏（<=900px，由 is-narrow 控制）—— */
+/* 窄屏（<=900px），由 is-narrow 控制 */
 .header.is-narrow {
   height: auto;
   line-height: normal;
@@ -371,13 +365,12 @@ onBeforeUnmount(() => {
 }
 
 .header.is-narrow .header-nav-col {
-  /* block 而不是 flex：作为 flex 项时中间列会按菜单的固有宽度撑开，
-     菜单随之被顶到视口左侧 */
+  /* 用 block 而非 flex：作为 flex 项时中间列会按菜单固有宽度撑开，菜单被顶到视口左侧 */
   display: block;
   order: 3;
   flex: 1 1 100%;
 
-  /* 菜单自己会做「多出的项收进省略号」的处理，这里不要再加一层横向滚动 */
+  /* 菜单自己会把多余项收进省略号，不要再套一层横向滚动 */
   overflow: hidden;
 }
 
@@ -385,7 +378,6 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 
-/* 窄屏菜单：占满整行，放不下的项由 antd 收进末尾的省略号菜单 */
 .header.is-narrow .header-navigation {
   width: 100%;
   height: 50px;
@@ -409,7 +401,6 @@ onBeforeUnmount(() => {
   padding: 0 12px;
 }
 
-/* 窄屏选中态：下划线贴着菜单底部 */
 .header.is-narrow .header-navigation :deep(.ant-menu-horizontal > .ant-menu-item)::after {
   bottom: 4px;
 }

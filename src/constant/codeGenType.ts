@@ -2,7 +2,7 @@
 
 import { createEnumNameGetter } from '@/utils/enumOptions'
 
-/** 代码生成类型枚举值 */
+/** 代码生成类型枚举值（对应后端 CodeGenTypeEnum） */
 export const CODE_GEN_TYPE = {
   /** 原生 HTML 模式 */
   HTML: 'html',
@@ -12,10 +12,9 @@ export const CODE_GEN_TYPE = {
   VUE_PROJECT: 'vue_project',
 } as const
 
-/** 代码生成类型取值 */
 export type CodeGenType = (typeof CODE_GEN_TYPE)[keyof typeof CODE_GEN_TYPE]
 
-/** 代码生成类型下拉选项（label 对应后端枚举的 text，value 对应枚举的 value） */
+/** 代码生成类型下拉选项（label 对应后端枚举 text，value 对应枚举 value） */
 export const CODE_GEN_TYPE_OPTIONS: { label: string; value: CodeGenType }[] = [
   { label: '原生 HTML 模式', value: CODE_GEN_TYPE.HTML },
   { label: '原生多文件模式', value: CODE_GEN_TYPE.MULTI_FILE },

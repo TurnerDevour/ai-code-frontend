@@ -1,23 +1,19 @@
 /**
- * 应用部署：状态文案与错误提示工具。
- * 状态机（对应后端 DeployStatusEnum）：
- *   idle -> queued -> deploying -> ready / failed
- * 其中 queued 与 deploying 都算「进行中」，需要继续轮询；ready / failed 为终态。
+ * 部署状态机（后端 DeployStatusEnum）：idle -> queued -> deploying -> ready / failed；
+ * queued / deploying 属「进行中」需继续轮询，ready / failed 为终态。
  */
 import { DEPLOY_STATUS, getDeployStatusMeta } from '@/constant/deploy'
 
 /**
- * 接口生成的 DeployStatusVO 类型之外，后端还回传了 `deployStale` 字段
- * （「已部署的产物是否落后于当前代码」）。
- * 生成的类型文件由工具维护，这里不改它，用一个本地扩展类型把它读出来。
+ * 生成的 DeployStatusVO 之外，后端还回传 deployStale（已部署的产物是否落后于当前代码）；
+ * 生成类型文件由工具维护不改动，这里用本地扩展类型把它读出来。
  */
 export type DeployStatusWithStale = API.DeployStatusVO & { deployStale?: boolean }
 
-/** 读取「代码已更新、需要重新部署」的标记 */
 export const isDeployStale = (deployStatus?: DeployStatusWithStale | null) =>
   deployStatus?.status === DEPLOY_STATUS.READY && deployStatus.deployStale === true
 
-/** 状态标签的简短文案：「排队中」补位次；已部署但有代码更新时补「(有更新)」 */
+/** 状态标签：「排队中」补位次；已部署但有代码更新时补「(有更新)」 */
 export const formatDeployStatusLabel = (
   status?: string | null,
   queuePosition?: number | null,
@@ -33,7 +29,7 @@ export const formatDeployStatusLabel = (
   return meta.label
 }
 
-/** 部署状态的悬浮说明：排队中给出位次与并发信息，失败时给出失败原因 */
+/** 悬浮说明：排队中给出位次与并发信息，失败时给出失败原因 */
 export const describeDeployStatus = (deployStatus?: DeployStatusWithStale | null) => {
   if (!deployStatus?.status) {
     return ''
@@ -70,11 +66,8 @@ export const describeDeployStatus = (deployStatus?: DeployStatusWithStale | null
   }
 }
 
-/**
- * 提取部署失败的提示文案
- * 优先后端下发的 message（队列满、同步部署额度超时等都是 code=50000 + 可直接展示的文案），
- * 再退回异常信息，最后给通用兜底文案。
- */
+/** 优先后端 message（队列满、同步部署额度超时等 code=50000 的文案可直接展示），
+ * 再退回异常信息，最后通用兜底文案 */
 export const resolveDeployErrorMessage = (error: unknown) => {
   const responseMessage = (error as { response?: { data?: { message?: unknown } } })?.response?.data
     ?.message

@@ -1,6 +1,5 @@
 <template>
   <div class="app-chat-page">
-    <!-- 顶部栏：应用名称 + 部署按钮 -->
     <header class="chat-header">
       <div class="header-left">
         <a-tooltip title="返回首页">
@@ -49,7 +48,7 @@
             </template>
           </a-button>
         </a-tooltip>
-        <!-- 部署状态：以 /app/deploy/status 的 status 字段为准（老数据后端已按「有 deployKey = 已部署」返回） -->
+        <!-- 状态取 /app/deploy/status 的 status 字段（老数据后端已按「有 deployKey = 已部署」返回） -->
         <a-tooltip v-if="canChat" :title="deployStatusTip">
           <DeployStatusTag
             :status="deployStatusValue"
@@ -73,12 +72,9 @@
       </div>
     </header>
 
-    <!-- 核心内容区域 -->
     <div class="chat-body">
-      <!-- 左侧对话区域 -->
       <section class="chat-panel">
         <div ref="messageListRef" class="message-list" @scroll="handleMessageListScroll">
-          <!-- 加载更多：历史消息还有更早的记录时，在消息上方展示入口 -->
           <div v-if="hasMoreHistory" class="history-more">
             <a-button class="load-more-button" :loading="historyLoading" @click="loadMoreHistory">
               <template #icon>
@@ -107,11 +103,7 @@
               <UserOutlined v-else />
             </div>
             <div class="message-bubble">
-              <!--
-                AI 思考过程：挂在**每一条 AI 回复的顶部**（三条 AI 回复就有三个思考过程），
-                而不是全页面共用一个。默认收起，只有"本轮正在生成"的那条默认展开、实时追加；
-                用户的收起/展开选择会按消息记住，并作为后续历史回复的默认值。
-              -->
+              <!-- 每条 AI 回复各有一个思考过程（非全页共用）：本轮那条默认展开并实时追加，用户的收起/展开按消息记住并作为后续历史回复的默认值 -->
               <div
                 v-if="item.role === 'ai' && item.thinking"
                 class="thinking-panel"
@@ -136,7 +128,6 @@
                   {{ item.thinking }}
                 </div>
               </div>
-              <!-- 用户消息是纯文本，AI 回复走 Markdown 渲染 -->
               <div v-if="item.role === 'user'" class="message-content is-plain-text">
                 {{ item.content }}
               </div>
@@ -154,9 +145,7 @@
           </div>
         </div>
 
-        <!-- 用户消息输入框 -->
         <div class="input-wrapper">
-          <!-- 可视化编辑：展示预览中选中的元素信息，可点击「移除」主动清除 -->
           <a-alert
             v-if="selectedElement"
             class="selected-element-alert"
@@ -202,7 +191,7 @@
                   :maxlength="CHAT_INPUT_MAX_LENGTH"
                   :show-hint="canChat"
                 />
-                <!-- 可视化编辑：开关编辑模式，选中元素后发送消息即可让 AI 按元素修改 -->
+                <!-- 开关可视化编辑：选中元素后发消息，AI 会按该元素修改 -->
                 <a-tooltip :title="visualEditTip">
                   <button
                     type="button"
@@ -226,7 +215,6 @@
         </div>
       </section>
 
-      <!-- 右侧网页展示区域 -->
       <section class="preview-panel" :class="{ 'is-editing': editMode }">
         <div class="preview-header">
           <div class="preview-title">
@@ -240,7 +228,7 @@
               <ExclamationCircleOutlined />
               {{ editError }}
             </span>
-            <!-- 构建失败：预览区必然是空白/404，标题行先给一个一眼可见的状态 -->
+            <!-- 构建失败：预览区必然空白/404，标题行先给个显眼状态 -->
             <span v-if="previewBuildError" class="preview-error-badge">
               <ExclamationCircleOutlined />
               构建失败
@@ -270,7 +258,6 @@
           </div>
         </div>
         <div class="preview-body">
-          <!-- 构建失败时给明确解释：否则用户只看到一块空白，完全不知道是打包挂了 -->
           <div v-if="previewBuildError" class="preview-build-error">
             <ExclamationCircleOutlined />
             <div class="preview-build-error-body">
@@ -303,7 +290,6 @@
       </section>
     </div>
 
-    <!-- 应用详情悬浮窗 -->
     <AppDetailModal
       v-model:open="detailModalOpen"
       :app="app"
@@ -314,7 +300,6 @@
       @delete="handleDetailDelete"
     />
 
-    <!-- 应用名称修改悬浮窗 -->
     <AppModal
       v-model:open="renameModalOpen"
       title="修改应用名称"
@@ -356,7 +341,7 @@ import {
   SettingOutlined,
   UserOutlined,
 } from '@ant-design/icons-vue'
-import { deleteApp, downloadApp, getAppVoById, getGenStatus, updateApp } from '@/api/appController'
+import { downloadApp, getAppVoById, getGenStatus, updateApp } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
 import AppDetailModal from '@/components/AppDetailModal.vue'
 import AppModal from '@/components/AppModal.vue'
@@ -365,6 +350,7 @@ import InputHintBar from '@/components/InputHintBar.vue'
 import SubmitButton from '@/components/SubmitButton.vue'
 import { useAccess } from '@/composables/useAccess'
 import { useAppDeploy } from '@/composables/useAppDeploy'
+import { useDeleteApp } from '@/composables/useDeleteApp'
 import { useEnterSubmit } from '@/composables/useEnterSubmit'
 import { useMarkdownThrottle } from '@/composables/useMarkdownThrottle'
 import { useMessage, showError } from '@/composables/useMessage'
@@ -399,17 +385,12 @@ interface ChatMessage {
   id: string
   role: 'user' | 'ai'
   content: string
-  /** AI 回复的 Markdown 渲染结果（流式输出时节流更新） */
+  /** 流式输出时节流更新的 Markdown 渲染结果 */
   html: string
   status: 'done' | 'loading' | 'error'
-  /** 出错时后端下发的错误原因（error 帧的 data），展示给用户 */
+  /** error 帧 data：后端下发的错误原因，展示给用户 */
   errorMessage?: string
-  /**
-   * 本轮的 AI 思考过程（推理模型的 reasoning_content）
-   * <p>
-   * 与 content 分开保存：它只展示在对话区顶部的「AI 思考过程」面板里，
-   * 不能混进 AI 回复正文（后端也是单独一列 chat_history.thinking 落库的）
-   */
+  /** 本轮 AI 思考过程（reasoning_content）：只进顶部思考面板、不能混进回复正文；后端单独存 chat_history.thinking */
   thinking?: string
 }
 
@@ -418,8 +399,7 @@ const router = useRouter()
 const { isAdmin, isOwner } = useAccess()
 const { success, error, warning, fail } = useMessage()
 /**
- * 生成会话 store：生成请求挂在这里，页面卸载不会中断它
- * （用户点返回后生成继续跑完；刷新/断网回来时用 resumeGeneration 按帧序号续订，零丢失零重复）
+ * 生成请求挂在全局 store：页面卸载不中断；刷新/断网回来用 resumeGeneration 按帧序号续订，不丢不重
  */
 const {
   isGenerating,
@@ -432,91 +412,58 @@ const {
 
 const appId = computed(() => String(route.params.id ?? ''))
 const app = ref<API.AppVO>({})
-/** 从后端加载的历史消息（按创建时间升序，旧的在前） */
+/** 历史消息（已按创建时间升序，旧的在前） */
 const historyMessages = ref<ChatMessage[]>([])
-/** 本次进入页面后新产生的消息（用户发送的消息 + AI 回复） */
 const sessionMessages = ref<ChatMessage[]>([])
-/** 历史消息与本次会话消息拼接后的完整消息列表：历史在前，新消息在后 */
 const messages = computed<ChatMessage[]>(() => [...historyMessages.value, ...sessionMessages.value])
-/** 历史消息加载中 */
 const historyLoading = ref(false)
-/** 该应用在服务端保存的对话记录总数 */
 const historyTotal = ref(0)
-/** 游标：已加载历史中最旧一条消息的创建时间，用于向前加载更早的消息 */
+/** 游标：已加载历史中最旧一条的创建时间，用于向前加载更早的消息 */
 const historyCursor = ref('')
-/** 是否还有更早的历史消息（一页 10 条，取满一页说明可能还有） */
+/** 是否还有更早的历史（取满一页说明可能还有） */
 const hasMoreHistory = ref(false)
-/** 是否成功加载过对话历史（加载失败时不能认为「没有对话历史」） */
+/** 是否成功加载过对话历史（加载失败时不能当成「没有历史」） */
 const historyLoaded = ref(false)
 const userInput = ref('')
 const generating = ref(false)
-/**
- * 当前页面正在关注的生成会话订阅清理函数
- * <p>
- * 生成请求本身挂全局 store，页面卸载只解除这个订阅（不中断生成），
- * 用户回到页面时会重新订阅并从 store 快照恢复内容。
- */
+/** 当前订阅的清理函数：页面卸载只解绑订阅（不中断生成），回到页面重新订阅并从 store 快照恢复 */
 let activeGenerationWatch: (() => void) | null = null
-/** 应用代码打包下载中 */
 const downloading = ref(false)
 const previewUrl = ref('')
 const previewKey = ref(0)
 /** 预览 iframe：可视化编辑脚本注入的目标 */
 const previewIframeRef = ref<HTMLIFrameElement | null>(null)
-/** 是否处于可视化编辑模式 */
 const editMode = ref(false)
-/** 预览中选中的页面元素：发送消息或手动移除后清空 */
 const selectedElement = ref<VisualEditorElement | null>(null)
-/** 可视化编辑开不起来时的原因（展示在预览面板标题旁，避免静默失败） */
+/** 可视化编辑启动失败的原因（展示在标题旁，避免静默失败） */
 const editError = ref('')
-/**
- * Vue 工程构建失败原因（后端 buildStatus=failed 时的 buildError）
- * <p>
- * 构建失败意味着 dist 没有产出，预览区只能是一片空白/404；把后端的真实原因展示出来，
- * 用户才知道该重新生成还是该反馈给后端，而不是对着空白页发呆（实测问题）。
- */
+/** 后端 buildStatus=failed 时的 buildError：dist 没产出，预览必然空白/404，必须把真实原因展示出来 */
 const previewBuildError = ref('')
-/** 本轮生成是否已经用 toast 提示过构建失败（只提示一次，避免轮询期间反复弹） */
+/** 构建失败只 toast 一次，避免轮询期间反复弹 */
 let buildErrorNotified = false
-/** 兜底文案：后端没给出原因时使用 */
 const DEFAULT_BUILD_ERROR = 'Vue 工程打包失败，未生成可预览的产物'
 const messageListRef = ref<HTMLElement | null>(null)
 
-/**
- * 距底部多少像素以内算"贴底"
- * <p>
- * 取值要兼顾两头：太小会把"轻微上滑"也判成"离开了底部"（滚动条被反复抢），
- * 太大则用户翻上去之后仍会被拉回底部，没法安静地看已经生成的内容。
- */
+/** 距底部多少像素内算「贴底」：太小会把轻微上滑误判成离开底部（滚动条被反复抢），太大则用户上翻后仍被拉回 */
 const AUTO_SCROLL_THRESHOLD = 80
 
-/**
- * 生成过程中是否继续自动贴底
- * <p>
- * 用户手动往上翻时置为 false：之后新生成的增量不再抢滚动条，
- * 这样生成期间可以随时回看上面已经生成的内容（需求 2）。重新滚到底部即恢复。
- */
+/** 生成期间是否继续自动贴底：用户上翻即置 false（不再抢滚动条），重新滚到底部恢复 */
 const autoScrollEnabled = ref(true)
 
-/** 思考过程面板的收起状态：消息 id -> 是否收起（未记录的按默认值走） */
+/** 思考面板收起状态：消息 id -> 是否收起（未记录的按默认值走） */
 const thinkingCollapsedMap = ref<Record<string, boolean>>({})
-/**
- * 历史回复里思考过程的默认收起状态
- * <p>
- * 默认收起：一条历史里可能有多个 AI 回复，每个都展开会把对话撑得很长；
- * 用户手动收起/展开后，这个选择会被记住并作为后续历史回复的默认值。
- */
+/** 历史回复的思考面板默认收起（一条历史可能有多个 AI 回复，全展开会把对话撑很长）；用户的选择会被记住 */
 const defaultThinkingCollapsed = ref(readDefaultThinkingCollapsed())
-/** 思考过程面板是否贴底：消息 id -> 是否贴底（未记录的按贴底处理） */
+/** 思考面板是否贴底：消息 id -> 是否贴底（未记录的按贴底处理） */
 const thinkingPinnedMap = ref<Record<string, boolean>>({})
-/** 思考过程内容元素：消息 id -> 元素（用于生成中自动跟随滚动） */
+/** 思考内容元素：消息 id -> 元素（生成中自动跟随滚动用） */
 const thinkingBodyRefs = new Map<string, HTMLElement>()
-/** 本轮正在生成的 AI 消息 id：它的思考过程默认展开、实时更新 */
+/** 本轮正在生成的 AI 消息 id：它的思考默认展开并实时更新 */
 const generatingMessageId = ref('')
 
 const THINKING_COLLAPSED_KEY = 'dsh:chat:thinking-collapsed'
 
-/** 读取历史思考过程的默认收起状态（默认收起；隐私模式等场景下 localStorage 不可用，忽略即可） */
+/** 读默认收起状态；localStorage 不可用（隐私模式等）时按默认收起处理 */
 function readDefaultThinkingCollapsed(): boolean {
   try {
     return localStorage.getItem(THINKING_COLLAPSED_KEY) !== '0'
@@ -525,15 +472,14 @@ function readDefaultThinkingCollapsed(): boolean {
   }
 }
 
-/** 某条 AI 回复的思考过程是否收起 */
 const isThinkingCollapsed = (item: ChatMessage): boolean =>
   thinkingCollapsedMap.value[item.id] ?? defaultThinkingCollapsed.value
 
-/** 某条 AI 回复是不是"本轮正在生成"的那条（用于展示「思考中」并实时跟随） */
+/** 是否为本轮正在生成的那条（展示「思考中」并实时跟随） */
 const isThinkingLive = (item: ChatMessage): boolean =>
   generating.value && item.id === generatingMessageId.value
 
-/** 容器是否已经贴底 */
+/** 容器是否贴底 */
 const isNearBottom = (container: HTMLElement) =>
   container.scrollHeight - container.scrollTop - container.clientHeight <= AUTO_SCROLL_THRESHOLD
 
@@ -552,12 +498,7 @@ const scrollToBottomIfPinned = () => {
   }
 }
 
-/**
- * 记录某条消息的思考过程元素
- * <p>
- * v-for 里用函数式 ref：元素卸载时（切换应用、消息被替换）Vue 会以 null 调用一次，
- * 这里同步清掉映射，避免 Map 里留下已脱离文档的元素。
- */
+/** v-for 函数式 ref：元素卸载时 Vue 会以 null 调一次，这里同步清掉映射，避免留下脱离文档的元素 */
 const setThinkingBodyRef = (messageId: string, element: unknown) => {
   if (element) {
     thinkingBodyRefs.set(messageId, element as HTMLElement)
@@ -566,7 +507,7 @@ const setThinkingBodyRef = (messageId: string, element: unknown) => {
   }
 }
 
-/** 收起 / 展开某条 AI 回复的思考过程，并把选择记为后续历史回复的默认值 */
+/** 收起/展开思考面板；选择会记为后续历史回复的默认值 */
 const toggleThinking = (item: ChatMessage) => {
   const next = !isThinkingCollapsed(item)
   thinkingCollapsedMap.value[item.id] = next
@@ -577,7 +518,6 @@ const toggleThinking = (item: ChatMessage) => {
     // 存不了不影响使用
   }
   if (!next) {
-    // 展开后直接定位到最新思考
     void nextTick(() => {
       const box = thinkingBodyRefs.get(item.id)
       if (box) {
@@ -588,7 +528,7 @@ const toggleThinking = (item: ChatMessage) => {
   }
 }
 
-/** 滚动某个思考过程面板：用户上翻后，该面板不再自动跟随 */
+/** 滚动思考面板：用户上翻后该面板不再自动跟随 */
 const handleThinkingScroll = (item: ChatMessage) => {
   const box = thinkingBodyRefs.get(item.id)
   if (box) {
@@ -596,7 +536,7 @@ const handleThinkingScroll = (item: ChatMessage) => {
   }
 }
 
-/** 本轮生成本条 AI 回复已累积的思考长度（用于触发思考面板与消息列表的跟随滚动） */
+/** 本轮已累积的思考长度（用长度变化触发跟随滚动） */
 const liveThinkingLength = computed(() => {
   if (!generating.value || !generatingMessageId.value) {
     return 0
@@ -605,7 +545,7 @@ const liveThinkingLength = computed(() => {
   return current?.thinking?.length ?? 0
 })
 
-// 思考过程实时追加：贴底时跟随滚动，用户上翻查看时保持阅读位置
+// 思考实时追加：贴底时跟随滚动，用户上翻查看时保持阅读位置
 watch(liveThinkingLength, async () => {
   await nextTick()
   const messageId = generatingMessageId.value
@@ -614,20 +554,24 @@ watch(liveThinkingLength, async () => {
   if (box && item && !isThinkingCollapsed(item) && (thinkingPinnedMap.value[messageId] ?? true)) {
     box.scrollTop = box.scrollHeight
   }
-  // 思考过程变长会把面板撑高、消息列表变矮，底部位置随之往下移；
-  // 这里同步跟随一次，否则"贴在底部"的用户会因为面板变高而看不到最新内容
+  // 思考变长会把面板撑高、消息列表变矮，底部随之下移；这里同步跟一次，否则贴底的用户会看不到最新内容
   scrollToBottomIfPinned()
 })
 const renameModalOpen = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
 const detailModalOpen = ref(false)
-const deleting = ref(false)
+
+/** 与首页卡片共用 useDeleteApp：删完关闭详情弹窗并回首页 */
+const { deleting, deleteAppById } = useDeleteApp({
+  onDeleted: async () => {
+    detailModalOpen.value = false
+    await router.replace('/')
+  },
+})
 
 /**
- * 部署状态与轮询
- * 后端已改为异步部署（提交毫秒级返回，构建在部署队列里跑），提交 + 轮询 + 超时保护
- * 都收敛在 useAppDeploy 中，页面只负责展示状态与触发交互
+ * 后端为异步部署（提交毫秒级返回，构建在部署队列里跑）：提交 + 轮询 + 超时保护都在 useAppDeploy 里
  */
 const {
   deployStatus,
@@ -643,7 +587,6 @@ const {
   stop: stopDeployPolling,
 } = useAppDeploy(appId)
 
-// 是否为当前用户自己的应用（管理员也视为可管理）
 const isAppOwner = computed(() => isOwner(app.value))
 
 // 只有自己的应用（或管理员）才能在对话页发消息
@@ -651,33 +594,29 @@ const canChat = computed(() => isAppOwner.value || isAdmin.value)
 
 let messageIdSeed = 0
 
-/**
- * 可视化编辑器：脚本注入、编辑状态同步、选中元素回传都封装在 utils/visualEditor.ts 中，
- * 页面只关心「是否编辑中」与「选中了哪个元素」
- */
+/** 脚本注入、编辑状态同步、选中回传都在 utils/visualEditor.ts：页面只关心「是否编辑中」与「选中了哪个元素」 */
 const visualEditor = createVisualEditor({
   onSelect: (element) => {
     selectedElement.value = element
   },
   onUnavailable: (reason) => {
-    // 开不起来时不能静默：回滚编辑模式，并把具体原因同时用提示条与 toast 告诉用户
+    // 不能静默失败：回滚编辑模式，并用提示条 + toast 说明原因
     editMode.value = false
     selectedElement.value = null
     editError.value = describeVisualEditorFailure(reason)
     warning(editError.value)
   },
   onDocumentReady: () => {
-    // 预览刷新后旧元素已不存在，清掉避免展示过期的元素信息
+    // 预览刷新后旧元素已不存在，清掉避免展示过期信息
     selectedElement.value = null
   },
 })
 
-// 选中元素的简短标识（如 button.btn-primary），展示在提示条标题行
+// 选中元素的简短标识（如 button.btn-primary）
 const selectedElementLabel = computed(() =>
   selectedElement.value ? formatVisualEditorElement(selectedElement.value) : '',
 )
 
-// 可视化编辑按钮的悬浮提示
 const visualEditTip = computed(() => {
   if (!canChat.value) {
     return '无法在别人的作品下对话哦~'
@@ -688,7 +627,6 @@ const visualEditTip = computed(() => {
   return previewUrl.value ? '可视化编辑：点选页面元素进行修改' : '生成网站后可进行可视化编辑'
 })
 
-// 切换可视化编辑模式
 const toggleEditMode = () => {
   if (!previewUrl.value) {
     warning('请先与 AI 对话生成网站，再进行可视化编辑')
@@ -698,20 +636,19 @@ const toggleEditMode = () => {
   editMode.value = next
   // 每次操作先清掉上一次的失败提示（失败时 onUnavailable 会重新写入）
   editError.value = ''
-  // 退出编辑模式时选中元素一并失效
   if (!next) {
     selectedElement.value = null
   }
   visualEditor.setEnabled(next)
 }
 
-// 移除选中的元素：保留编辑模式，方便继续点选其它元素
+// 保留编辑模式，方便继续点选其它元素
 const clearSelectedElement = () => {
   selectedElement.value = null
   visualEditor.clearSelection()
 }
 
-// 退出可视化编辑并复位预览页中的高亮（发送消息、切换应用时调用）
+// 退出编辑并复位预览页高亮
 const exitEditMode = () => {
   editMode.value = false
   selectedElement.value = null
@@ -719,7 +656,7 @@ const exitEditMode = () => {
   visualEditor.setEnabled(false)
 }
 
-// 预览 iframe 由 v-if + key 渲染，重建后需要重新绑定：绑定内部会自动注入脚本并同步编辑模式
+// iframe 由 v-if + key 渲染，重建后必须重新绑定（attach 内部会注入脚本并同步编辑模式）
 watch(previewIframeRef, (iframe) => visualEditor.attach(iframe), { flush: 'post' })
 
 const createMessageIdGenerator = () => {
@@ -727,24 +664,22 @@ const createMessageIdGenerator = () => {
   return `msg-${Date.now()}-${messageIdSeed}`
 }
 
-// 流式输出的分片很密，而 Markdown 解析 + 代码高亮都有成本：
-// 这里按 100ms 节流重渲染，流结束时再立即渲染一次，兼顾实时展示与流畅度。
-// 节流与定时器清理都收在 useMarkdownThrottle 中，切换应用 / 卸载时调用 clear()
+// 流式分片很密而 Markdown 解析 + 代码高亮有成本：按 100ms 节流重渲染，流结束时立即渲染一次；
+// 定时器清理在 useMarkdownThrottle 中，切换应用 / 卸载时调用 clear()
 const {
   flush: flushMarkdown,
   schedule: scheduleMarkdown,
   clear: clearMarkdownTimers,
 } = useMarkdownThrottle(renderMarkdown)
 
-// 生成预览地址：{VITE_APP_PREVIEW_BASE_URL}/{codeGenType}_{appId}/（见 utils/apiUrl.ts）
-// codeGenType 取自应用详情（app.codeGenType，如 multi_file / html）
+// 预览地址：{VITE_APP_PREVIEW_BASE_URL}/{codeGenType}_{appId}/（codeGenType 如 multi_file / html，见 utils/apiUrl.ts）
 const buildPreviewUrl = () => {
   return getStaticUrl(app.value.codeGenType, appId.value)
 }
 
 const scrollToBottom = async () => {
   await nextTick()
-  // 主动滚到底部（发送消息 / 用户自己滚到底）时重新开启自动贴底
+  // 主动滚到底部时重新开启自动贴底
   autoScrollEnabled.value = true
   const container = messageListRef.value
   if (container) {
@@ -752,7 +687,6 @@ const scrollToBottom = async () => {
   }
 }
 
-// 获取应用信息
 const fetchApp = async () => {
   if (!appId.value) {
     return
@@ -769,22 +703,17 @@ const fetchApp = async () => {
 const sortRecordsByCreateTimeAsc = (records: API.ChatHistory[]) =>
   [...records].sort((first, second) => parseTime(first.createTime) - parseTime(second.createTime))
 
-// 把后端返回的对话记录转换为页面消息
-// 历史中的错误消息（messageType = error）内容即失败原因，直接按 AI 消息展示
+// 历史中的错误消息（messageType = error）内容即失败原因，按 AI 消息展示
 const toChatMessage = (record: API.ChatHistory): ChatMessage => ({
   id: `history-${record.id}`,
   role: record.messageType === CHAT_MESSAGE_TYPE.USER ? 'user' : 'ai',
   content: record.message ?? '',
   html: renderMarkdown(record.message ?? ''),
   status: 'done',
-  // 后端把思考过程单独存在 chat_history.thinking，刷新页面后从历史里恢复出来
   thinking: record.thinking || undefined,
 })
 
-/**
- * 加载对话历史
- * @param loadMore 为 true 时带上游标向前加载更早的一页，否则加载最新一页
- */
+/** 加载对话历史；loadMore=true 时带游标向前加载更早一页，否则加载最新一页 */
 const loadHistory = async (loadMore = false) => {
   if (!appId.value || historyLoading.value) {
     return
@@ -799,7 +728,7 @@ const loadHistory = async (loadMore = false) => {
       {
         pageNum: 1,
         pageSize: CHAT_HISTORY_PAGE_SIZE,
-        // 不传游标时查询最新的消息，传入游标时只查询比该时间更早的消息
+        // 不传游标查最新一页，传游标只查比该时间更早的消息
         ...(loadMore ? { lastCreateTime: historyCursor.value } : {}),
       },
     )
@@ -813,12 +742,11 @@ const loadHistory = async (loadMore = false) => {
     const sortedRecords = sortRecordsByCreateTimeAsc(records)
     const pageMessages = sortedRecords.map(toChatMessage)
     historyTotal.value = Number(historyPage.totalRow ?? pageMessages.length)
-    // 本页最旧的一条消息的创建时间，作为下一次向前加载的游标
+    // 本页最旧一条的创建时间，作为下次向前加载的游标
     const oldestRecord = sortedRecords[0]
     if (oldestRecord?.createTime) {
       historyCursor.value = oldestRecord.createTime
     }
-    // 取满一页说明可能还有更早的消息
     hasMoreHistory.value = records.length >= CHAT_HISTORY_PAGE_SIZE
     historyMessages.value = loadMore ? [...pageMessages, ...historyMessages.value] : pageMessages
   } finally {
@@ -826,7 +754,7 @@ const loadHistory = async (loadMore = false) => {
   }
 }
 
-// 加载更多历史消息：加载后保持当前阅读位置不跳动
+// 加载更多历史：加载后保持当前阅读位置不跳动
 const loadMoreHistory = async () => {
   const container = messageListRef.value
   const previousScrollHeight = container?.scrollHeight ?? 0
@@ -838,13 +766,7 @@ const loadMoreHistory = async () => {
   }
 }
 
-/**
- * 按 id 定位页面上的某条消息，保证流式追加时响应式更新
- *
- * @param messageId 消息 id
- *
- * @returns 更新函数（消息已被移除时什么都不做）
- */
+/** 按 id 定位消息并更新（消息已被移除时什么都不做） */
 const createMessageUpdater = (messageId: string) => (updater: (target: ChatMessage) => void) => {
   const target = sessionMessages.value.find((item) => item.id === messageId)
   if (target) {
@@ -852,7 +774,7 @@ const createMessageUpdater = (messageId: string) => (updater: (target: ChatMessa
   }
 }
 
-/** 比较内容时忽略空白差异：服务端落库时会 trim，前端快照可能带首尾空白 */
+/** 比对时忽略空白：服务端落库会 trim，前端快照可能带首尾空白 */
 const normalizeForCompare = (text: string) => text.replace(/\s+/g, '')
 
 /** 构建状态取值（与后端 GenerationStatusVO.buildStatus 一致） */
@@ -864,15 +786,14 @@ const BUILD_STATUS = {
 } as const
 /** 预览刷新轮询间隔：Vue 构建通常 10~60 秒，1.5 秒粒度足够且不打扰后端 */
 const PREVIEW_BUILD_POLL_INTERVAL = 1500
-/** 轮询上限：超过后不再等待（构建异常时不能让页面一直转） */
+/** 轮询上限：避免构建异常时页面一直转 */
 const PREVIEW_BUILD_POLL_MAX_ATTEMPTS = 80
 
-/** 预览刷新轮询定时器：切换应用/组件卸载时必须停掉 */
+/** 预览刷新轮询定时器：切换应用 / 卸载时必须停掉 */
 let previewRefreshTimer: number | undefined
 /** 轮询代数：新一轮生成开始时让上一次的轮询自然失效 */
 let previewRefreshToken = 0
 
-/** 停止预览刷新轮询（切换应用、组件卸载、生成失败时调用） */
 const stopPreviewRefreshPolling = () => {
   previewRefreshToken += 1
   if (previewRefreshTimer !== undefined) {
@@ -881,13 +802,9 @@ const stopPreviewRefreshPolling = () => {
   }
 }
 
-/**
- * 生成本轮产出后的预览刷新编排
- *
- * @param attempt 已轮询次数（内部递归使用）
- */
+/** 生成产出后的预览刷新编排；attempt 为已轮询次数（内部递归用） */
 const refreshPreviewAfterGeneration = (attempt = 0) => {
-  // 静态模式（HTML / 多文件）：产物在生成结束时就已落盘，直接刷新
+  // 静态模式（HTML / 多文件）：产物在生成结束时已落盘，直接刷新
   if (app.value.codeGenType !== CODE_GEN_TYPE.VUE_PROJECT) {
     refreshPreview()
     return
@@ -897,7 +814,7 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
   void (async () => {
     let buildStatus = ''
     let buildError = ''
-    // 服务端是否已经没有这个应用的生成任务（后端重启后注册表清空、或这一轮早就结束了）
+    // 服务端已无该应用的生成任务（后端重启清空注册表 / 本轮早已结束）
     let noTask = false
     try {
       const res = await getGenStatus({ appId: targetAppId })
@@ -905,14 +822,13 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
       buildError = res.data?.data?.buildError ?? ''
       noTask = res.data?.data?.status === 'none'
     } catch {
-      // 状态接口偶发失败不应阻塞预览：按"尚未完成"处理，下一轮继续查
+      // 状态接口偶发失败不应阻塞预览：按「尚未完成」处理，下一轮继续查
       buildStatus = ''
     }
-    // 轮询期间用户切换了应用或又发起了一轮生成：放弃本次刷新
+    // 轮询期间切换了应用或又发起一轮生成：放弃本次刷新
     if (token !== previewRefreshToken || targetAppId !== appId.value) {
       return
     }
-    // 构建失败：dist 没产出，预览必然是空白。展示后端给出的真实失败原因
     if (buildStatus === BUILD_STATUS.FAILED) {
       previewBuildError.value = buildError || DEFAULT_BUILD_ERROR
       if (!buildErrorNotified) {
@@ -923,12 +839,9 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
       refreshPreview()
       return
     }
-    // 服务端没有任务 = 没有任何东西在构建，等待毫无意义：直接刷新预览。
-    // 否则会一直按 PREVIEW_BUILD_POLL_INTERVAL 轮询到上限（实测：后端日志里
-    // SELECT user / SELECT app 两条 SQL 持续刷屏，而预览区一直空白）。
+    // 无任务 = 没有东西在构建，等待毫无意义：直接刷新，否则会空轮询到上限（实测后端 SQL 刷屏而预览一直空白）
     if (noTask) {
-      // 没有任务又没有产物（buildStatus != finished）：说明这一轮的构建没有成功，
-      // 预览同样是空白，同样要给出解释，而不是静默刷新
+      // 无任务又非 finished：这一轮构建没成功，预览同样空白，同样要给出解释而非静默刷新
       if (buildStatus !== BUILD_STATUS.FINISHED) {
         previewBuildError.value = DEFAULT_BUILD_ERROR
         if (!buildErrorNotified) {
@@ -940,7 +853,6 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
       return
     }
     if (buildStatus === BUILD_STATUS.FINISHED) {
-      // 构建成功：清掉上一轮的失败提示
       previewBuildError.value = ''
       refreshPreview()
       return
@@ -957,28 +869,21 @@ const refreshPreviewAfterGeneration = (attempt = 0) => {
   })()
 }
 
-/** 统一的「生成结束后刷新预览」入口：先停掉上一轮轮询，再按需等待后端构建 */
+/** 生成结束统一入口：先停掉上一轮轮询，再按需等待后端构建 */
 const schedulePreviewRefresh = () => {
   stopPreviewRefreshPolling()
   refreshPreviewAfterGeneration()
 }
 
-/**
- * 一轮生成结束后的收尾编排：刷新预览 + 重新读取部署状态
- */
+/** 生成结束收尾：刷新预览 + 重新读取部署状态 */
 const afterGenerationFinished = () => {
   schedulePreviewRefresh()
   void syncDeployStatus()
 }
 
 /**
- * 订阅某一轮生成会话，把它累积的内容与终态同步到页面上的一条 AI 消息
- *
- * @param session     要订阅的会话对象（必须是当时 store 里的当前会话）
- * @param messageId   同步到哪条 AI 消息
- * @param hooks       onFinished 终态回调（用于刷新预览）
- *
- * @returns 解绑函数
+ * 订阅一轮生成会话，把累积内容与终态同步到页面上的一条 AI 消息；返回解绑函数。
+ * session 必须是当时 store 里的当前会话
  */
 const watchGenerationSession = (
   session: GenerationSession,
@@ -987,25 +892,24 @@ const watchGenerationSession = (
 ) => {
   const targetAppId = appId.value
   const updateAiMessage = createMessageUpdater(messageId)
-  // 已同步进 UI 的内容：用前缀比对代替长度比对，避免"长度变小"引发整体清空
+  // 已同步内容：用前缀比对而非长度比对，避免「长度变小」导致整体清空
   let syncedContent = ''
-  // 已同步进 UI 的思考过程（只增不减，同样按前缀推进）
+  // 已同步的思考过程（同样按前缀推进）
   let syncedThinking = ''
-  // 出错提示只弹一次
   let errorNotified = false
-  // 订阅是否已解绑：避免终态回调重复触发预览刷新
+  // 已解绑：避免终态回调重复触发预览刷新
   let detached = false
   const stopWatch = watch(
-    // 正文与思考过程都要参与触发：只盯正文会漏掉"模型这一轮只在思考"的增量
+    // 正文与思考都要参与触发：只盯正文会漏掉「模型这一轮只在思考」的增量
     () => `${session.content.length}:${session.thinking.length}:${session.status}`,
     () => {
-      // 会话已被新一轮替换（或被清理）：本轮订阅立即失效，不再触碰任何消息
+      // 会话已被新一轮替换/清理：本轮订阅立即失效，不再触碰任何消息
       if (detached || getCurrentSession(targetAppId) !== session) {
         detached = true
         stopWatch()
         return
       }
-      // 思考过程：单独同步到消息上，由顶部的「AI 思考过程」面板展示（不进正文）
+      // 思考过程单独同步，只进顶部面板、不进正文
       const thinking = session.thinking
       if (thinking.length > syncedThinking.length) {
         syncedThinking = thinking
@@ -1027,7 +931,6 @@ const watchGenerationSession = (
         updateAiMessage((target) => {
           target.content += delta
         })
-        // 只在用户"本来就在底部"时才跟着滚：生成期间可以安心上翻查看已经生成的内容
         scrollToBottomIfPinned()
       }
       if (session.status === 'error') {
@@ -1072,7 +975,7 @@ const watchGenerationSession = (
       flushMarkdown(target)
     })
   }
-  // 续订/恢复时把已经积累的思考补上，避免刷新回来面板是空的
+  // 续订/恢复时把已积累的思考补上，避免刷新回来面板是空的
   if (session.thinking) {
     syncedThinking = session.thinking
     updateAiMessage((target) => {
@@ -1100,11 +1003,11 @@ const genCode = async (prompt: string) => {
   })
 
   generating.value = true
-  // 本轮生成：思考过程默认展开（历史回复默认收起），并记为"正在生成"的那条
+  // 本轮思考默认展开，并记为「正在生成」的那条
   generatingMessageId.value = aiMessageId
   thinkingCollapsedMap.value[aiMessageId] = false
   previewUrl.value = ''
-  // 新一轮生成：清掉上一轮的构建失败提示，避免旧提示残留误导用户
+  // 清掉上一轮的构建失败提示，避免残留误导
   previewBuildError.value = ''
   buildErrorNotified = false
   await scrollToBottom()
@@ -1125,14 +1028,8 @@ const genCode = async (prompt: string) => {
 }
 
 /**
- * 判断某个会话的内容是否已经完整落在对话历史里
- *
- * 生成结束后服务端会把这一轮内容写入对话历史，刷新页面时历史接口可能已经能查到它；
- * 这时若无条件再插一条"会话恢复"消息，就会看到两条一模一样的回复。
- *
- * @param content 会话里累积的内容
- *
- * @returns 历史里是否已有等价的 AI 消息
+ * 会话内容是否已完整落在历史里：生成结束后服务端会写入历史，刷新时可能已能查到，
+ * 此时再插一条「会话恢复」消息就会出现两条相同回复
  */
 const isContentAlreadyInHistory = (content: string) => {
   const normalized = normalizeForCompare(content)
@@ -1145,16 +1042,9 @@ const isContentAlreadyInHistory = (content: string) => {
 }
 
 /**
- * 从全局生成会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回后的场景）
- * <p>
- * 生成请求挂在 store（并持久化到 sessionStorage + 帧序号），所以刷新后内容还在；
- * 但此时历史接口里可能还没有这条 AI 消息，需要主动把它渲染出来。
- * <p>
- * 另外：如果这一轮生成其实还在服务端跑（会话里记着帧序号），这里会用
- * `/app/chat/gen/resume?fromSeq=` 把订阅接回来，服务端补发缺失的帧后继续实时推送，
- * 因此刷新不会丢掉"离开期间"生成的内容，也不会重复渲染已经看过的部分。
- *
- * @returns 是否恢复出了内容
+ * 从全局会话恢复这一轮 AI 消息（整页刷新 / 浏览器返回）：会话持久化在 sessionStorage + 帧序号，
+ * 历史接口里可能还没有它；若这一轮仍在服务端跑，用 /app/chat/gen/resume?fromSeq= 接回订阅，
+ * 服务端补发缺失帧后继续推送，不丢也不重
  */
 const recoverSessionMessage = () => {
   const targetAppId = appId.value
@@ -1170,11 +1060,11 @@ const recoverSessionMessage = () => {
   if (!current) {
     return false
   }
-  // 已经完成且历史里已落库：交给历史渲染，避免重复展示同一轮回复
+  // 已完成且历史里已落库：交给历史渲染，避免重复展示同一轮回复
   if (!resuming && current.status === 'done' && isContentAlreadyInHistory(current.content)) {
     return false
   }
-  // 恢复出的 AI 消息挂在 sessionMessages 里（历史消息之后），并按会话内容整体重建
+  // 恢复的消息挂在 sessionMessages（历史之后），按会话内容整体重建
   const messageId = createMessageIdGenerator()
   sessionMessages.value.push({
     id: messageId,
@@ -1187,7 +1077,7 @@ const recoverSessionMessage = () => {
   })
   generating.value = resuming || current.status === 'running'
   if (generating.value) {
-    // 续订/恢复出的这一轮仍在生成：它的思考过程默认展开，并实时跟随
+    // 仍在生成：思考默认展开并实时跟随
     generatingMessageId.value = messageId
     thinkingCollapsedMap.value[messageId] = false
   }
@@ -1204,7 +1094,6 @@ const recoverSessionMessage = () => {
   return true
 }
 
-// 发送用户消息
 const handleSend = async () => {
   if (!canChat.value) {
     warning('无法在别人的作品下对话哦~')
@@ -1214,7 +1103,7 @@ const handleSend = async () => {
   if (!prompt || generating.value) {
     return
   }
-  // 可视化编辑选中了元素时，把元素信息拼进提示词，AI 才知道要改的是页面上的哪一块
+  // 选中元素时把元素信息拼进提示词，AI 才知道要改页面上的哪一块
   const element = selectedElement.value
   const finalPrompt = element ? buildVisualEditPrompt(element, prompt) : prompt
   sessionMessages.value.push({
@@ -1225,20 +1114,19 @@ const handleSend = async () => {
     status: 'done',
   })
   userInput.value = ''
-  // 发送后清除选中元素并退出编辑模式（预览页中的高亮由 exitEditMode 一并复位）
+  // 发送后退出编辑模式（预览页高亮由 exitEditMode 一并复位）
   exitEditMode()
   await scrollToBottom()
   await genCode(finalPrompt)
 }
 
-// 回车发送、Shift + 回车换行、输入法组合期间不发送（与首页输入框共用同一套规则）
+// 回车发送、Shift+回车换行、输入法组合期间不发送（与首页同一套规则）
 const { handlePressEnter } = useEnterSubmit(handleSend)
 
-// 刷新预览：始终指向「本次生成产物」目录（{codeGenType}_{appId}）
-// 用户主动刷新时（菜单/按钮）先停掉自动轮询，避免和用户操作互相打断
+// 预览地址始终指向本次生成产物目录；用户主动刷新时先停掉自动轮询，避免互相打断
 const refreshPreview = () => {
   stopPreviewRefreshPolling()
-  // 重新加载往往能解决「脚本没注入」这类问题，先清掉上一次的失败提示
+  // 重新加载常能修好「脚本没注入」，先清掉上次的失败提示
   editError.value = ''
   previewUrl.value = buildPreviewUrl()
   previewKey.value += 1
@@ -1250,10 +1138,7 @@ const openPreview = () => {
   }
 }
 
-/**
- * 部署应用：提交异步部署（毫秒级返回），再轮询到 ready / failed
- * 部署会真的执行依赖安装与打包，因此点击前先做一次二次确认
- */
+/** 提交异步部署（毫秒级返回）后轮询到 ready / failed；部署会真的装依赖与打包，故点击前先二次确认 */
 const handleDeploy = async () => {
   if (!appId.value || deploying.value) {
     return
@@ -1281,14 +1166,14 @@ watch(deployStatusValue, (value) => {
   }
 })
 
-// 下载应用代码：后端直接向响应流写 zip 包，并通过响应头下发文件名
+// 下载应用代码：后端向响应流写 zip 包，文件名走响应头
 const handleDownload = async () => {
   if (!appId.value) {
     return
   }
   downloading.value = true
   try {
-    // src/api 下的下载方法不支持 responseType 参数，这里通过 options 覆盖为 blob 以二进制接收；
+    // 下载方法不支持 responseType，这里用 options 覆盖成 blob 二进制接收；
     // timeout 置 0：打包大应用可能超过 60s 的默认超时
     const res = await downloadApp({ appId: appId.value }, { responseType: 'blob', timeout: 0 })
     // 后端异常时状态码仍是 200，响应体却是 JSON 格式的 BaseResponse，需要先识别出来
@@ -1315,7 +1200,6 @@ const handleDownload = async () => {
   }
 }
 
-// 修改应用名称
 const openRenameModal = () => {
   renameValue.value = app.value.appName ?? ''
   renameModalOpen.value = true
@@ -1346,12 +1230,10 @@ const goToEditPage = () => {
   router.push(`/app/edit/${appId.value}`)
 }
 
-// 返回首页
 const goHome = () => {
   router.push('/')
 }
 
-// 应用详情悬浮窗
 const openDetailModal = () => {
   detailModalOpen.value = true
 }
@@ -1361,34 +1243,14 @@ const handleDetailEdit = () => {
   goToEditPage()
 }
 
-// 删除应用（普通用户接口已校验归属）
-const handleDetailDelete = async () => {
-  if (!appId.value) {
-    return
-  }
-  deleting.value = true
-  try {
-    const res = await deleteApp({ id: appId.value })
-    if (res.data.code === 0) {
-      detailModalOpen.value = false
-      success('删除成功')
-      await router.replace('/')
-    } else {
-      fail('删除失败', res.data)
-    }
-  } finally {
-    deleting.value = false
-  }
-}
+const handleDetailDelete = () => deleteAppById(appId.value)
 
-// 进入对话页的初始化：拉取应用详情 -> 加载历史消息 -> 按需自动生成 -> 展示网站
+// 初始化：应用详情 → 加载历史 → 按需自动生成 → 展示网站
 const initPage = async () => {
   await fetchApp()
   // 刷新页面 / 重新进入详情后恢复部署进度：仍在排队或构建中会自动继续轮询
   void syncDeployStatus()
   await loadHistory()
-  // 整页刷新（含浏览器返回按钮触发的前进/后退）后，历史里可能还没有这一轮 AI 消息
-  // （服务端兜底关闭、或消息尚未落库），此时从全局会话恢复已生成的内容
   const recovered = recoverSessionMessage()
   await scrollToBottom()
   // 首页创建应用后会带上 prompt 参数，这里只处理一次并清理掉，避免刷新后重复触发
@@ -1432,9 +1294,9 @@ watch(
     activeGenerationWatch?.()
     activeGenerationWatch = null
     clearMarkdownTimers()
-    // 上一个应用的预览刷新轮询必须停掉，避免刷新到已经切走的应用
+    // 停掉上一个应用的预览轮询，避免刷新到已切走的应用
     stopPreviewRefreshPolling()
-    // 上一个应用的部署轮询必须停掉，避免状态串到新应用
+    // 停掉部署轮询，避免状态串到新应用
     stopDeployPolling()
     historyMessages.value = []
     sessionMessages.value = []
@@ -1444,23 +1306,22 @@ watch(
     historyLoaded.value = false
     userInput.value = ''
     previewUrl.value = ''
-    // 切换应用时退出可视化编辑，避免上一个应用的选中元素被带到新应用
+    // 退出可视化编辑，避免上一个应用的选中元素被带到新应用
     exitEditMode()
     await initPage()
   },
 )
 
 onBeforeUnmount(() => {
-  // 注意：不中断生成请求。
-  // 用户点返回/关闭页面时，生成会继续在 store 里跑完（服务端同一轮也会继续），
-  // 回到页面时重新订阅即可拿到完整内容；只有切换应用才会真正中断（见上面的路由 watch）。
+  // 注意：不中断生成请求——返回/关闭页面后生成会在 store 里跑完（服务端同一轮也继续），
+  // 回到页面重新订阅即可拿到完整内容；只有切换应用才真正中断（见上面的路由 watch）
   activeGenerationWatch?.()
   activeGenerationWatch = null
   clearMarkdownTimers()
   // 停止预览刷新轮询与部署轮询，避免离开页面后定时器继续请求
   stopPreviewRefreshPolling()
   stopDeployPolling()
-  // 释放 iframe 消息监听，并通知预览页复位高亮
+  // 释放 iframe 消息监听并复位预览页高亮
   visualEditor.destroy()
 })
 </script>
@@ -1677,10 +1538,10 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 
-/* ---- AI 思考过程（每一条 AI 回复的顶部，可收起/展开） ---- */
+/* ---- AI 思考过程 ---- */
 .thinking-panel {
   margin: 0 0 12px;
-  /* 比消息气泡底色略深一点，作为"AI 回复内部的一块"能被一眼区分出来 */
+  /* 比消息气泡底色略深，便于一眼区分出「AI 回复内部的一块」 */
   background: linear-gradient(135deg, #e9f1ff, #f3eeff);
   border: 1px solid #dde7fb;
   border-radius: 10px;
@@ -1710,7 +1571,7 @@ onBeforeUnmount(() => {
   letter-spacing: 0.3px;
 }
 
-/* 生成中：一个小圆点 + 文字，明确"思考还在继续" */
+/* 生成中：圆点 + 文字，明确「思考还在继续」 */
 .thinking-live {
   display: inline-flex;
   gap: 5px;
@@ -1769,7 +1630,7 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 
-/* 矮屏（小笔记本 / 分屏）：思考过程面板让位给消息列表，避免只看到一块思考内容 */
+/* 矮屏（小笔记本 / 分屏）：思考面板让位给消息列表，避免只看到一块思考内容 */
 @media (max-height: 760px) {
   .thinking-body {
     max-height: 108px;
@@ -1798,7 +1659,7 @@ onBeforeUnmount(() => {
 }
 
 .message-list::-webkit-scrollbar-thumb {
-  /* 透明边框 + padding-box 裁剪，让滑块比轨道更细、更精致 */
+  /* 透明边框 + padding-box 裁剪，让滑块比轨道更细 */
   border: 3px solid transparent;
   border-radius: 999px;
   background: linear-gradient(135deg, #dbe6f5, #cadcf0);
@@ -2451,7 +2312,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 
-/* 构建失败提示条：贴在预览区顶部，不遮挡可能存在的旧产物 */
+/* 构建失败提示条：贴预览区顶部，不遮挡可能存在的旧产物 */
 .preview-build-error {
   position: absolute;
   top: 16px;

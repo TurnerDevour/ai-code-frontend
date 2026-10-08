@@ -11,20 +11,12 @@ import {
 /**
  * AI 生成会话（全局、不随组件卸载中断）
  *
- * 背景：原来生成请求由页面组件发起，并在 onBeforeUnmount 里 abort。
- * 用户点返回按钮时连接被掐断，于是：
- *   - 服务端虽然会继续生成（工具已经把文件写进磁盘），但对话历史里没有这一轮 AI 回复；
- *   - 用户回到页面看到的是"空回复"，而且 AI 后续追问"不记得"生成过什么。
+ * 生成请求必须挂在 store 上：放在组件里并在 onBeforeUnmount abort，用户点返回就掐断连接，
+ * 服务端仍在生成却不在对话历史里留这一轮回复，用户看到"空回复"。
  *
- * 现在的做法：
- *   - 生成请求挂在这个 store 上（Pinia 实例不随路由卸载销毁），路由离开只解除 UI 订阅（方案 A）；
- *   - 内容与工具消息在此累积，会话快照落到 sessionStorage，整页刷新/浏览器返回后仍能恢复；
- *   - 后端（VUE_PROJECT）已把生成过程与客户端连接解耦：每个数据帧带 SSE `id`（帧序号），
- *     客户端刷新/断网回来后调用 `/app/chat/gen/resume?fromSeq=已收到的序号` 续订，
- *     服务端先补发缺失的帧再继续实时推送，因此零丢失、零重复；
- *   - 只有切换应用、用户主动停止时才真正中断。
- *
- * 注意：HTTP 请求的发起与重连都在 store 里，组件卸载只解除自己的订阅，不影响生成本身。
+ * 后端（VUE_PROJECT）已把生成与连接解耦：每帧带 SSE `id`（帧序号），刷新/断网后调
+ * `/app/chat/gen/resume?fromSeq=已收到的序号` 续订，服务端先补发缺失帧再实时推送，零丢失零重复。
+ * 只有切换应用、用户主动停止时才真正中断。
  */
 
 /** 生成会话状态 */
@@ -36,23 +28,14 @@ export interface GenerationSession {
   /**
    * 本轮生成轮次标识（每次 startGeneration 都会变）
    *
-   * 为什么需要它：会话按 appId 保存，第 2 轮开始时会把 content 重置为空。
-   * 如果 UI 只按 `content.length` 判断增量，上一轮遗留的订阅会把"长度从 0 重新增长"
-   * 误判成"内容变短了"，于是第一轮消息被清空、又被第二轮的流重新填满（表现为
-   * 第一轮内容突然消失，随后跟着第二轮一起流式生成，甚至两条都变空白）。
-   * 带上轮次标识后，订阅先比对轮次：轮次不同就直接解绑，不触碰任何消息。
+   * 会话按 appId 保存，第二轮开始会把 content 重置为空；订阅若只比对 `content.length`，上轮遗留的
+   * 订阅会误判成"内容变短"而清空消息。带轮次标识后订阅先比对轮次，不同就直接解绑、不触碰消息。
    */
   roundId: string
-  /** 当前状态 */
   status: GenerationStatus
   /** 累积的展示内容（Markdown 源码） */
   content: string
-  /**
-   * 累积的 AI 思考过程（推理模型的 reasoning_content）
-   *
-   * 与 content 分开累积：它展示在对话页顶部的「AI 思考过程」面板里，
-   * 混进正文会让 AI 回复里夹着大段推理内容（后端也是单独一列落库的）。
-   */
+  /** 累积的 AI 思考过程（reasoning_content）：只进对话页顶部「AI 思考过程」面板，混进正文会夹带推理内容 */
   thinking: string
   /** 已产生的工具执行结果（按到达顺序） */
   toolExecutions: { relativePath: string; content: string }[]
@@ -60,15 +43,9 @@ export interface GenerationSession {
   errorMessage: string
   /** 是否已收到后端的 done 事件 */
   doneReceived: boolean
-  /**
-   * 已收到的最新帧序号（取自 SSE 的 id: 字段）
-   * 它是续订的起点：/app/chat/gen/resume?fromSeq= 会补发该序号之后的帧。
-   */
+  /** 已收到的最新帧序号（SSE 的 id: 字段），也是续订起点：resume 会补发该序号之后的帧 */
   lastSeq: number
-  /**
-   * 已应用到内容里的最大帧序号
-   * 续订补发与实时推送可能让同一帧到达两次，用它做幂等过滤，保证不重复渲染。
-   */
+  /** 已应用到内容的最大帧序号：补发与实时推送可能让同一帧到达两次，用它幂等过滤 */
   appliedSeq: number
   /** 开始时间戳 */
   startedAt: number
@@ -98,12 +75,8 @@ const createSession = (appId: string): GenerationSession => ({
 })
 
 /**
- * 会话持久化：写入 sessionStorage
- *
- * 为什么需要：浏览器"返回上一页"或刷新会整页重新加载，Pinia 实例被重建、内存里的会话就没了
- * （实测：离开页面后 history.back/forward 回来，内容为空）。
- * sessionStorage 的生命周期正好是"当前标签页"，与生成过程的可见范围一致：
- * 同标签页内返回/刷新能恢复内容，关掉标签页即清理。
+ * 会话持久化到 sessionStorage：整页刷新/浏览器"返回上一页"会重建 Pinia 实例、内存会话就没了
+ * （实测 history.back/forward 回来内容为空）。sessionStorage 生命周期正是"当前标签页"，与生成可见范围一致。
  */
 const STORAGE_PREFIX = 'dsh:generation:'
 /** 会话最长保留时间：超过则视为过期（生成早就结束了，没必要继续占存储） */
@@ -111,9 +84,7 @@ const SESSION_TTL_MS = 6 * 60 * 60 * 1000
 /** 单条会话的持久化上限：超长内容（几十个文件）不落盘，避免撑爆 sessionStorage 配额 */
 const MAX_PERSIST_CONTENT = 400_000
 /**
- * 思考过程的持久化上限
- *
- * 思考过程可能很长（推理模型一轮几万字），这里只用于 sessionStorage 回放截断；
+ * 思考过程的持久化上限：仅用于 sessionStorage 回放截断（推理模型一轮可能几万字）。
  * 后端 chat_history.thinking 存的是完整内容，刷新页面后仍能从历史里拿全。
  */
 const MAX_PERSIST_THINKING = 60_000
@@ -121,6 +92,7 @@ const MAX_PERSIST_THINKING = 60_000
 const PERSIST_INTERVAL_MS = 1200
 
 const persistSession = (session: GenerationSession) => {
+  // 后端渲染时没有 sessionStorage，这里挡掉
   if (typeof sessionStorage === 'undefined') {
     return
   }
@@ -134,6 +106,7 @@ const persistSession = (session: GenerationSession) => {
       sessionStorage.setItem(
         STORAGE_PREFIX + session.appId,
         JSON.stringify({ ...session, content: '', toolExecutions: [], thinking, persistTruncated: true }),
+
       )
       return
     }
@@ -157,11 +130,8 @@ const removePersistedSession = (appId: string) => {
 /**
  * 恢复某个应用上次未清理的会话
  *
- * 整页刷新后原来的 fetch 已经不存在了，因此把仍在 running 的会话标记为 stopped
- * （内容保留，页面据此展示"已中断"而不是一直转圈）；
- * 页面随后会用 resumeGeneration 通过 resume 接口把真正的生成接回来。
- *
- * @param appId 应用 id
+ * 整页刷新后原来的 fetch 已不存在，故把仍为 running 的会话标记为 stopped（内容保留，页面显示"已中断"
+ * 而不是一直转圈），页面再用 resumeGeneration 接回真正的生成。
  */
 const restoreSession = (appId: string): GenerationSession | null => {
   if (typeof sessionStorage === 'undefined') {
@@ -185,7 +155,7 @@ const restoreSession = (appId: string): GenerationSession | null => {
     parsed.appliedSeq = parsed.appliedSeq ?? 0
     parsed.lastFrameAt = parsed.lastFrameAt ?? parsed.startedAt ?? Date.now()
     parsed.thinking = parsed.thinking ?? ''
-    // 旧快照没有轮次标识：补一个，保证「按轮次解绑」的比较逻辑对它同样成立
+    // 旧快照没有轮次标识，补一个，让「按轮次解绑」的比较逻辑对它同样成立
     parsed.roundId = parsed.roundId ?? `round-restored-${parsed.startedAt ?? Date.now()}`
     if (parsed.status === 'running') {
       parsed.status = 'stopped'
@@ -224,7 +194,7 @@ export const useGenerationStore = defineStore('generation', () => {
     Object.values(sessions.value).some((session) => session.status === 'running'),
   )
 
-  /** 读取会话：内存里没有时尝试从 sessionStorage 恢复（整页刷新/浏览器返回按钮的场景） */
+  /** 读取会话：内存里没有时尝试从 sessionStorage 恢复（整页刷新/浏览器返回的场景） */
   const getSession = (appId: string): GenerationSession | null => {
     const inMemory = sessions.value[appId]
     if (inMemory) {
@@ -241,20 +211,12 @@ export const useGenerationStore = defineStore('generation', () => {
   /**
    * 读取「当前这一轮」会话（不做落盘恢复）
    *
-   * 页面用它区分「我正在订阅的那一轮」是否已经被新一轮替换：
-   * 新一轮 startGeneration 会整体替换会话对象，因此引用比较即可判断订阅是否过期。
-   *
-   * @param appId 应用 id
-   *
-   * @returns 当前会话（没有则为 null）
+   * 新一轮 startGeneration 会整体替换会话对象，页面用引用比较即可判断自己的订阅是否已过期。
    */
   const getCurrentSession = (appId: string): GenerationSession | null =>
     sessions.value[appId] ?? null
 
-  /**
-   * 落盘（节流）：流式过程中最多每 PERSIST_INTERVAL_MS 写一次，
-   * 关键节点（开始/结束/状态变化）用 immediate 立即写。
-   */
+  /** 落盘（节流）：流式过程中最多每 PERSIST_INTERVAL_MS 写一次，关键节点用 immediate 立即写 */
   const schedulePersist = (session: GenerationSession, immediate = false) => {
     const now = Date.now()
     const last = lastPersistAt.get(session.appId) ?? 0
@@ -273,7 +235,7 @@ export const useGenerationStore = defineStore('generation', () => {
       return
     }
     if (message.type === STREAM_MESSAGE_TYPE.AI_THINKING) {
-      // 思考过程单独累积：它只进「AI 思考过程」面板，不进 AI 回复正文
+      // 思考过程单独累积：只进「AI 思考过程」面板，不进 AI 回复正文
       if (message.data) {
         session.thinking += message.data
       }
@@ -281,7 +243,7 @@ export const useGenerationStore = defineStore('generation', () => {
     }
     if (message.type === STREAM_MESSAGE_TYPE.TOOL_REQUEST) {
       // 展示文案由后端按工具声明下发（[🔧 选择工具] 修改文件内容 / 写入文件内容 …）；
-      // 旧帧没有 display 时退回工具英文名，不再硬编码成"写入文件"
+      // 旧帧没有 display 时才退回工具英文名
       session.content += `\n\n> ${message.display || `[🔧 选择工具] ${message.name}`}\n\n`
       return
     }
@@ -290,22 +252,20 @@ export const useGenerationStore = defineStore('generation', () => {
       if (file) {
         session.toolExecutions.push(file)
       }
-      // 优先渲染后端给的展示文本：工具自己最清楚参数结构，
-      // 写入工具是"文件内容"、修改工具是"修改前后对比"、失败时是失败原因。
-      // 前端按工具名猜参数结构会把 modifyFile 渲染成"写入文件 + 空代码块"（实测问题：写文件输出空白）
+      // 优先用后端给的展示文本：写入是"文件内容"、修改是"修改前后对比"、失败给失败原因。
+      // 前端按工具名猜参数结构会把 modifyFile 渲染成"写入文件 + 空代码块"
       if (message.display) {
         session.content += `\n\n${message.display}\n\n`
         return
       }
-      // 以下都是兼容旧帧（没有 display）的兜底：
-      // 工具调用失败（参数不是合法 JSON / 工具名不存在 / 工具内部异常）时后端照样会下发
-      // tool_executed，但**文件并没有写入**。必须显式展示失败，否则用户会以为改写成功了。
+      // 以下是旧帧（无 display）的兜底。工具调用失败（参数非合法 JSON / 工具名不存在 / 工具内部异常）
+      // 时后端照样下发 tool_executed，但文件并没有写入，必须显式展示失败，否则用户以为改写成功了。
       if (message.failed) {
         const reason = message.result || '工具未执行'
         session.content += `\n\n> ⚠️ [工具调用失败] ${message.name}：${reason}\n\n`
         return
       }
-      // 解析不出内容时只显示一行工具名，绝不渲染一个空代码块
+      // 解析不出内容时只显示一行工具名，绝不渲染空代码块
       if (!file || !file.content) {
         const target = file?.relativePath ? ` ${file.relativePath}` : ''
         session.content += `\n\n> [🔧 工具调用] ${message.name}${target}\n\n`
@@ -331,7 +291,7 @@ export const useGenerationStore = defineStore('generation', () => {
     const seq = Number(frame.id)
     const hasSeq = frame.id !== undefined && frame.id !== '' && !Number.isNaN(seq)
     if (hasSeq && seq <= session.appliedSeq) {
-      // 续订补发与实时推送重叠时同一帧会到达两次，这里跳过，保证不重复渲染
+      // 续订补发与实时推送重叠时同一帧会到两次，跳过以保证不重复渲染
       return
     }
     if (hasSeq) {
@@ -386,9 +346,7 @@ export const useGenerationStore = defineStore('generation', () => {
   /**
    * 发起（或续订）生成流
    *
-   * @param session 会话
-   * @param url     请求地址：首次是 /app/chat/gen/code，续订是 /app/chat/gen/resume
-   * @param params  查询参数
+   * @param url     首次是 /app/chat/gen/code，续订是 /app/chat/gen/resume
    * @param attempt 当前重连次数（0 表示首次连接）
    */
   const runGeneration = (
@@ -443,12 +401,7 @@ export const useGenerationStore = defineStore('generation', () => {
     })
   }
 
-  /**
-   * 启动生成：已存在运行中的会话时直接复用，不会重复发起请求
-   *
-   * @param appId  应用 id
-   * @param prompt 提示词
-   */
+  /** 启动生成：已有运行中的会话或正在重连时直接复用，不重复发起请求 */
   const startGeneration = (appId: string, prompt: string) => {
     if (isGenerating(appId) || reconnecting.has(appId)) {
       return
@@ -465,10 +418,8 @@ export const useGenerationStore = defineStore('generation', () => {
   /**
    * 续订：把"服务端仍在生成、但本地连接已断"的任务接回来
    *
-   * 用于整页刷新 / 浏览器返回 / 网络中断后的恢复。服务端会先补发 fromSeq 之后的帧
-   * （按帧序号幂等，重复的不会应用），再继续实时推送。
+   * 用于整页刷新 / 浏览器返回 / 网络中断后的恢复。
    *
-   * @param appId 应用 id
    * @returns 是否真的发起了续订
    */
   const resumeGeneration = (appId: string): boolean => {
@@ -480,7 +431,6 @@ export const useGenerationStore = defineStore('generation', () => {
     if (reconnecting.has(appId) || controllers.has(appId)) {
       return false
     }
-    // 已经结束的会话不需要续订
     if (session.status === 'done' || session.status === 'error' || session.doneReceived) {
       return false
     }
@@ -497,9 +447,7 @@ export const useGenerationStore = defineStore('generation', () => {
   /**
    * 中断某个应用的生成（切换应用时用；用户主动"停止生成"也走这里）
    *
-   * 与"断网/刷新导致的断开"不同：这里会标记为主动停止，不再自动重连。
-   *
-   * @param appId 应用 id
+   * 会标记为主动停止，与"断网/刷新导致的断开"区分开，不再自动重连。
    */
   const abortGeneration = (appId: string) => {
     manualStops.add(appId)

@@ -1,6 +1,6 @@
 // 应用部署状态常量（与后端 DeployStatusEnum 保持一致）
 
-/** 部署状态枚举值 */
+/** 部署状态枚举值（对应后端 DeployStatusEnum） */
 export const DEPLOY_STATUS = {
   /** 未部署（老数据没有部署记录时后端也返回该值） */
   IDLE: 'idle',
@@ -14,10 +14,9 @@ export const DEPLOY_STATUS = {
   FAILED: 'failed',
 } as const
 
-/** 部署状态取值 */
 export type DeployStatus = (typeof DEPLOY_STATUS)[keyof typeof DEPLOY_STATUS]
 
-/** 状态标签的展示配置 */
+/** 状态标签展示配置 */
 export interface DeployStatusMeta {
   /** 状态文案（不含「第 N 位」这类动态信息） */
   label: string
@@ -25,7 +24,7 @@ export interface DeployStatusMeta {
   color: 'default' | 'processing' | 'success' | 'error'
 }
 
-/** 部署状态展示配置：文案与颜色 */
+/** 部署状态的文案与颜色 */
 export const DEPLOY_STATUS_META: Record<DeployStatus, DeployStatusMeta> = {
   [DEPLOY_STATUS.IDLE]: { label: '未部署', color: 'default' },
   [DEPLOY_STATUS.QUEUED]: { label: '排队中', color: 'processing' },

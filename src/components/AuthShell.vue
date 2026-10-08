@@ -31,11 +31,8 @@
 
 <script setup lang="ts">
 /**
- * 登录页 / 注册页共用的页面骨架。
- *
- * 两个页面此前是同一套模板与样式复制了两份（左右分栏 + 两枚光斑 + 品牌标语区 +
- * 白底卡片表单），差异只有文案、卡片内边距和表单间距。
- * 这里收成骨架组件，表单由默认插槽传入，页面只写自己的表单项与提交逻辑。
+ * 登录页 / 注册页共用的页面骨架：左右分栏 + 两枚光斑 + 品牌标语区 + 白底卡片表单，
+ * 两页差异只有文案、卡片内边距和表单间距，表单本身由默认插槽传入。
  */
 import {
   RocketOutlined,
@@ -44,15 +41,11 @@ import {
 } from '@ant-design/icons-vue'
 
 defineProps<{
-  /** 左侧大标题：需要换行等自定义内容时改用 #hero-title 插槽 */
+  /** 需要换行等自定义内容时改用 #hero-title 插槽 */
   heroTitle?: string
-  /** 左侧大标题下方说明 */
   heroSubtitle: string
-  /** 卡片顶部英文小标题 */
   cardEyebrow: string
-  /** 卡片标题 */
   cardTitle: string
-  /** 卡片标题下方说明 */
   cardSubtitle: string
 }>()
 </script>
@@ -233,11 +226,9 @@ defineProps<{
 }
 </style>
 
-<!--
-  表单由页面通过插槽传入，节点带的是页面的 scopeId，卡片的 scoped 样式命中不了，
-  因此卡片内的表单控件样式放在非 scoped 样式块里，用 .auth-card 收敛作用范围。
-  提交按钮统一使用 .auth-submit-button 类。
--->
+<!-- 表单由页面通过插槽传入，节点带的是页面的 scopeId，卡片的 scoped 样式命中不了，
+     故卡片内的表单控件样式放在非 scoped 块里，用 .auth-card 收敛范围；
+     提交按钮统一使用 .auth-submit-button 类。 -->
 <style>
 .auth-card .ant-form-item {
   margin-bottom: 18px;

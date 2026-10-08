@@ -17,22 +17,15 @@
 
 <script setup lang="ts">
 /**
- * 后台管理页的「表格面板」外壳。
- *
- * 用户 / 应用 / 对话三个管理页的表格面板此前各自复制了同一段结构和同一套
- * 「面板 + 表头 + 表体 + 分页 + 操作按钮组」样式（每个页面 150 行左右），
- * 差异只有标题文案、总数单位和表格最小宽度，因此收成一个面板组件，
- * a-table 由默认插槽传入，各页面保留自己的列定义与单元格渲染。
+ * 后台管理页的「表格面板」外壳：用户 / 应用 / 对话三个页面共用面板、表头与操作按钮组样式，
+ * 差异只有标题文案、总数单位和表格最小宽度；a-table 由默认插槽传入。
  */
 import { computed } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 面板标题，如「应用列表」 */
     title: string
-    /** 总条数 */
     total: number
-    /** 总数单位，如「个应用」「条消息」 */
     unit?: string
     /** 表格最小宽度：列多时由容器横向滚动，而不是把内容挤成多行 */
     minTableWidth?: number | string
@@ -48,7 +41,7 @@ const minWidthStyle = computed(() => {
   }
   const width =
     typeof props.minTableWidth === 'number' ? `${props.minTableWidth}px` : props.minTableWidth
-  // 通过 CSS 变量透给非 scoped 的表格样式
+  // 用 CSS 变量透给非 scoped 的表格样式
   return { '--admin-table-min-width': width }
 })
 </script>
@@ -85,11 +78,8 @@ const minWidthStyle = computed(() => {
 }
 </style>
 
-<!--
-  a-table 由页面通过插槽传入，面板的 scoped 样式无法命中它的内部节点，
-  因此表格本体、分页与操作按钮组的样式放在非 scoped 样式块里，
-  统一用 .admin-table-panel 收敛作用范围；表格最小宽度由 CSS 变量从组件透下来。
--->
+<!-- a-table 由页面通过插槽传入，面板的 scoped 样式命中不了它的内部节点，故表格本体、分页与
+     操作按钮组的样式放在非 scoped 块里，用 .admin-table-panel 收敛范围；最小宽度由 CSS 变量透下来。 -->
 <style>
 .admin-table-panel .ant-table-wrapper {
   display: flex;
@@ -111,8 +101,8 @@ const minWidthStyle = computed(() => {
   font-size: 13px;
 }
 
-/* 列宽按定义精确分配（仅声明了 minTableWidth 的页面），容器过窄时由 .ant-table-content 横向滚动；
-   未声明列宽的页面保持浏览器默认的自动布局，避免把列宽拉成均分 */
+/* 列宽按定义精确分配（仅声明 minTableWidth 的页面），容器过窄时由 .ant-table-content 横向滚动；
+   未声明的保持浏览器自动布局，避免列宽被拉成均分 */
 .admin-table-panel table {
   width: 100%;
   min-width: var(--admin-table-min-width, 0);
@@ -158,13 +148,13 @@ const minWidthStyle = computed(() => {
   padding: 8px 12px 0;
 }
 
-/* 创建时间：等宽数字，多行对齐 */
+/* 创建时间：等宽数字，纵向对齐 */
 .admin-table-panel .create-time {
   color: #71829a;
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- 操作列按钮组 ---- */
+/* 操作列按钮组 */
 .admin-table-panel .action-buttons {
   display: inline-flex;
   flex-wrap: nowrap;

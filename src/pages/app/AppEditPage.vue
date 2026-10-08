@@ -107,7 +107,7 @@ const formState = reactive<{
   priority: 0,
 })
 
-// 优先级选项：以常量中的两个优先级为准；存量应用若使用了自定义优先级，则额外附上以免显示成裸数字
+// 以常量中的两个优先级为准；存量应用若用了自定义优先级，额外附上以免显示成裸数字
 const priorityOptions = computed(() => {
   const options = [...APP_PRIORITY_OPTIONS]
   const current = formState.priority
@@ -117,7 +117,7 @@ const priorityOptions = computed(() => {
   return options
 })
 
-// 获取应用信息，管理员使用管理员接口
+// 管理员走管理员接口
 const fetchApp = async () => {
   if (!appId.value) {
     return

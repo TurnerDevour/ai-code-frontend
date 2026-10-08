@@ -1,38 +1,28 @@
 import { baseUrl } from '@/utils/apiUrl'
 
-/**
- * SSE 事件数据
- */
+/** SSE 事件数据，data 为 JSON 时会自动反序列化 */
 export interface SseMessage<T = string> {
-  /** 事件 id */
   id?: string
   /** 事件类型，默认为 message */
   event?: string
-  /** 事件数据，data 为 JSON 时会自动反序列化 */
   data: T
 }
 
 interface SseOptions<T> {
   /** 请求地址，会自动拼接 baseUrl */
   url: string
-  /** 查询参数 */
   params?: Record<string, string | number | undefined>
   method?: 'GET' | 'POST'
   /** 请求体，使用 JSON 序列化 */
   body?: unknown
-  /** 每个事件回调 */
   onMessage: (message: SseMessage<T>) => void
   /** 流结束（正常结束或手动中断）时回调 */
   onClose?: () => void
-  /** 出现异常时回调 */
   onError?: (error: unknown) => void
-  /** 外部中断控制器，便于组件卸载时取消请求 */
+  /** 外部中断控制器，组件卸载时用来取消请求 */
   abortController?: AbortController
 }
 
-/**
- * 拼接完整请求地址
- */
 const buildUrl = (url: string, params?: Record<string, string | number | undefined>) => {
   const query = new URLSearchParams()
   Object.entries(params ?? {}).forEach(([key, value]) => {
@@ -52,10 +42,7 @@ interface RawSseMessage {
   data: string
 }
 
-/**
- * 解析单个 SSE 数据块，兼容 id / event / data 三种字段
- * 参考规范：https://html.spec.whatwg.org/multipage/server-sent-events.html
- */
+/** 解析单个 SSE 数据块，兼容 id / event / data 字段（规范：https://html.spec.whatwg.org/multipage/server-sent-events.html） */
 const parseChunk = (chunk: string): RawSseMessage | null => {
   const message: RawSseMessage = { data: '' }
   const dataLines: string[] = []
@@ -83,9 +70,7 @@ const parseChunk = (chunk: string): RawSseMessage | null => {
   return message
 }
 
-/**
- * 处理事件数据，data 为 JSON 字符串时自动反序列化
- */
+/** 事件数据为 JSON 字符串时自动反序列化，解析失败则原样返回 */
 const parseData = (data: string): unknown => {
   const trimmed = data.trim()
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -98,11 +83,8 @@ const parseData = (data: string): unknown => {
   return data
 }
 
-/**
- * 以 fetch + ReadableStream 的方式消费后端 SSE 流式接口
- * 后端返回 text/event-stream，浏览器原生 EventSource 不支持自定义请求头与请求方式，
- * 因此这里统一使用 fetch 手动解析事件流。
- */
+/** 用 fetch + ReadableStream 消费后端 SSE：后端返回 text/event-stream，
+ *  而浏览器原生 EventSource 不支持自定义请求头与请求方式，所以这里手动解析事件流 */
 export const streamSse = async <T = string>(options: SseOptions<T>): Promise<void> => {
   const {
     url,

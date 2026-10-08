@@ -1,7 +1,5 @@
-// 定义权限常量
+// 权限常量（与后端用户角色取值一致）
 export const ACCESS = {
-  // 管理员
   ADMIN: 'admin',
-  // 普通用户
   USER: 'user',
 }

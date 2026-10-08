@@ -67,10 +67,6 @@ const formState = reactive<API.UserLoginRequest>({
   userPassword: '',
 })
 
-/**
- * 提交表单
- * @param values
- */
 const handleSubmit = async (values: API.UserLoginRequest) => {
   const res = await userLogin(values)
   if (res.data.code === 0 && res.data.data) {

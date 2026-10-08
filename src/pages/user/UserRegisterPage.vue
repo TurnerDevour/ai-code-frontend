@@ -81,10 +81,6 @@ const formState = reactive<API.UserRegisterRequest>({
 const router = useRouter()
 const { success, error, fail } = useMessage()
 
-/**
- * 提交表单
- * @param values
- */
 const handleSubmit = async (values: API.UserRegisterRequest) => {
   if (formState.userPassword !== formState.checkPassword) {
     error('二次输入的密码不一致')

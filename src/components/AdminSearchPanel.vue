@@ -10,17 +10,12 @@
 
 <script setup lang="ts">
 /**
- * 后台管理页的「筛选面板」外壳。
- *
- * 用户 / 应用 / 对话三个管理页的筛选面板结构完全一致
- * （面板容器 + 「筛选 XX」小标题 + 内联搜索表单），
- * 表单内部的 antd 控件样式也逐行重复。这里收成一个面板组件，
- * 页面只负责用默认插槽放自己的表单项。
+ * 后台管理页的「筛选面板」外壳：用户 / 应用 / 对话三个页面共用面板容器、
+ * 「筛选 XX」小标题与内部 antd 控件样式，表单项由默认插槽传入。
  */
 import { SearchOutlined } from '@ant-design/icons-vue'
 
 defineProps<{
-  /** 面板标题，如「筛选应用」 */
   label: string
 }>()
 </script>
@@ -50,10 +45,8 @@ defineProps<{
 }
 </style>
 
-<!--
-  表单由页面通过插槽传入，其节点带的是页面的 scopeId，面板的 scoped 样式命中不了，
-  因此搜索表单与内部 antd 控件的样式放在非 scoped 样式块里，用 .admin-search-panel 收敛作用范围。
--->
+<!-- 表单由页面通过插槽传入，其节点带的是页面的 scopeId，面板的 scoped 样式命中不了，
+     故搜索表单与内部 antd 控件的样式放在非 scoped 块里，用 .admin-search-panel 收敛范围。 -->
 <style>
 .admin-search-panel .search-form {
   display: flex;
@@ -92,7 +85,7 @@ defineProps<{
   color: #8da0ba;
 }
 
-/* 下拉框与输入框同高同底色（各管理页原先各写了一份，这里统一） */
+/* 下拉框与输入框同高同底色；antd 的 select 默认样式优先级更高，需 !important 才能覆盖 */
 .admin-search-panel .search-form .ant-select-selector {
   height: 38px !important;
   background: #f7f9fc !important;
@@ -135,7 +128,7 @@ defineProps<{
     margin-bottom: 14px;
   }
 
-  /* 手机宽度：输入框与下拉框铺满整行 */
+  /* 窄屏：输入框与下拉框铺满整行 */
   .admin-search-panel .search-form .ant-input-affix-wrapper,
   .admin-search-panel .search-form .ant-select {
     width: 100%;

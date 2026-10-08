@@ -15,7 +15,6 @@ withDefaults(
   defineProps<{
     /** AI 模型类型（对应后端 AIModelTypeEnum 的 value） */
     aiModelType?: string
-    /** 是否展示类型图标（卡片等需要快速扫读的场景） */
     showIcon?: boolean
   }>(),
   {

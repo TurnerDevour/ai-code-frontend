@@ -1,28 +1,20 @@
 /**
- * 文件下载相关工具
- * 后端下载接口直接向响应流写二进制内容，并通过 HTTP 响应头描述文件信息：
- *   response.setContentType("application/zip");
- *   response.addHeader("Content-Disposition", "attachment; filename=\"xxx.zip\"");
- * 因此前端需要：按 blob 接收响应 -> 解析 Content-Disposition 得到文件名 -> 触发浏览器保存。
+ * 文件下载工具：后端下载接口直接往响应流写二进制，用响应头描述文件信息
+ * （Content-Type: application/zip、Content-Disposition: attachment; filename="xxx.zip"），
+ * 所以前端按 blob 接收响应 -> 解析 Content-Disposition -> 触发浏览器保存。
  */
 
 /** 疑似错误响应体的最大解析体积（错误信息是 JSON，正常不会超过 64KB） */
 const MAX_ERROR_BODY_SIZE = 64 * 1024
 
-/**
- * 规整文件名：去掉可能被注入的路径分隔符，避免保存到用户目录之外
- */
+/** 去掉文件名里可能被注入的路径分隔符，避免保存到用户目录之外 */
 const normalizeFileName = (fileName: string, fallback: string) => {
   const name = fileName.split(/[\\/]/).pop()?.trim() ?? ''
   return name || fallback
 }
 
-/**
- * 解析 Content-Disposition 响应头中的文件名
- * 优先取 RFC 5987 的 filename*=UTF-8''xxx（可携带中文），否则回落到 filename="xxx.zip"
- * @param contentDisposition 响应头内容，如 attachment; filename="1.zip"
- * @param fallback 无法解析时使用的兜底文件名
- */
+/** 从 Content-Disposition 解析文件名：优先 RFC 5987 的 filename*=UTF-8''xxx（可携带中文），
+ *  否则回落到 filename="xxx.zip"，都解析不到时用 fallback */
 export const parseDownloadFileName = (
   contentDisposition?: string | null,
   fallback = 'download.zip',
@@ -46,11 +38,7 @@ export const parseDownloadFileName = (
   return fallback
 }
 
-/**
- * 将 Blob 保存为本地文件（用临时 a 标签触发浏览器下载）
- * @param blob 响应体
- * @param fileName 保存的文件名
- */
+/** 用临时 a 标签触发浏览器下载，把 Blob 保存为本地文件 */
 export const saveBlobAsFile = (blob: Blob, fileName: string) => {
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -64,12 +52,8 @@ export const saveBlobAsFile = (blob: Blob, fileName: string) => {
   window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
 }
 
-/**
- * 解析后端下发的错误提示
- * 下载接口出错时 HTTP 状态码仍为 200，响应体却是 application/json 的 BaseResponse，
- * 这里把 Blob / JSON 字符串 / 普通对象三种形态统一还原成 message；非错误响应返回空字符串
- * @param payload 响应体（axios 的 response.data 或 error.response.data）
- */
+/** 还原后端错误提示：下载接口出错时状态码仍为 200、响应体却是 application/json 的 BaseResponse，
+ *  这里把 Blob / JSON 字符串 / 普通对象三种形态统一还原成 message；非错误响应返回空字符串 */
 export const parseResponseErrorMessage = async (payload: unknown): Promise<string> => {
   if (payload instanceof Blob) {
     // 正常响应是 application/zip 的压缩包，无需解析内容

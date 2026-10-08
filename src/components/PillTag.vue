@@ -18,15 +18,10 @@
 
 <script lang="ts">
 /**
- * 胶囊标签的通用外壳。
- *
- * 项目里有 5 个「状态胶囊」组件（代码生成类型 / AI 模型 / 消息类型 / 部署状态 / 应用优先级），
- * 它们的内容各不相同，但外壳样式与两个坑完全一样：
- *   1. 圆角胶囊 + inline-flex 居中 + 统一字号字重；
- *   2. antd 的点击波纹会把一个零尺寸 holder 作为标签第一个子元素插入，
- *      在 inline-flex 里它会被当成 flex item 参与居中，导致波纹圆心落在胶囊右下角，
- *      因此需要把 holder 钉在胶囊自身坐标系的原点并铺满整块。
- * 这里把外壳与色板收口，业务标签组件只负责「取名称、选色、选图标」。
+ * 胶囊标签的通用外壳：项目里 5 个「状态胶囊」组件（代码生成类型 / AI 模型 / 消息类型 /
+ * 部署状态 / 应用优先级）共用它的样式与色板，各自只负责取名称、选色、选图标。
+ * 注意：antd 的点击波纹会把一个零尺寸 holder 作为第一个子元素插入，在 inline-flex 里
+ * 会被当成 flex item 参与居中，波纹圆心因此落到胶囊右下角，下面需把 holder 钉回原点并铺满。
  */
 
 /** 胶囊色板：业务标签只需从中挑一个 */
@@ -47,21 +42,19 @@ import { computed, type Component } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 色板 */
     tone?: PillTagTone
-    /** 标签文案（也可用默认插槽传入更复杂的内容） */
+    /** 标签文案（复杂内容可用默认插槽） */
     label?: string
-    /** 左侧图标 */
     icon?: Component
-    /** 交给 a-tag 的原生 color（仅 tone=plain 时生效，用于 antd 的预设状态色） */
+    /** 透给 a-tag 的原生 color，仅 tone=plain 时生效（antd 预设状态色） */
     antColor?: string
     /** 最小宽度：让同一列里的胶囊宽度对齐 */
     minWidth?: number | string
-    /** 紧凑模式：去掉最小宽度、缩小内边距，并关闭悬浮反馈 */
+    /** 紧凑模式：无最小宽度、内边距更小、无悬浮反馈 */
     compact?: boolean
-    /** 是否有点击态（cursor: pointer） */
+    /** 指针手型 + 悬浮上浮 */
     interactive?: boolean
-    /** 仅需要「可点击」的手型光标、不需要悬浮上浮效果时使用 */
+    /** 只要手型光标、不要悬浮上浮时用 */
     clickable?: boolean
   }>(),
   {
@@ -99,7 +92,6 @@ const pillStyle = computed(() => {
   opacity: 0.85;
 }
 
-/* 状态展示类胶囊：悬浮时轻微上浮，点击时轻微回弹 */
 .pill-tag.is-interactive {
   cursor: pointer;
   transition:
@@ -133,7 +125,7 @@ const pillStyle = computed(() => {
   filter: none;
 }
 
-/* 见组件顶部注释 2：把 antd 的波纹 holder 拉回胶囊自身坐标系 */
+/* 见顶部注释：把 antd 的波纹 holder 拉回胶囊自身坐标系 */
 .pill-tag :deep(.ant-wave) {
   position: absolute !important;
   inset: 0 !important;
@@ -141,7 +133,6 @@ const pillStyle = computed(() => {
   border-radius: inherit !important;
 }
 
-/* ---- 色板 ---- */
 .pill-tag.is-blue {
   color: #1677ff;
   background: #eaf3ff;

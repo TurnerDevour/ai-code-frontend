@@ -23,7 +23,7 @@ const props = withDefaults(
   defineProps<{
     /** 应用优先级，未设置时按默认优先级展示 */
     priority?: number
-    /** 紧凑模式：用于弹窗等空间较小的位置 */
+    /** 紧凑模式：用于弹窗等窄空间 */
     compact?: boolean
   }>(),
   {
@@ -33,7 +33,6 @@ const props = withDefaults(
 
 const normalizedPriority = computed(() => props.priority ?? DEFAULT_APP_PRIORITY)
 
-/** 精选 / 默认 / 自定义优先级各自的色板、图标与文案 */
 const meta = computed<{ tone: PillTagTone; icon: Component; label: string }>(() => {
   if (normalizedPriority.value === GOOD_APP_PRIORITY) {
     return { tone: 'good', icon: StarFilled, label: '精选' }

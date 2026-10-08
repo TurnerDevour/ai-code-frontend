@@ -7,7 +7,7 @@
     :clickable="clickable"
     @click="handleClick"
   >
-    <!-- 图标按状态区分：部署中要转起来，因此用插槽传入带 spin 的图标 -->
+    <!-- 部署中需要旋转，故用插槽传入带 spin 的图标 -->
     <template #icon>
       <LoadingOutlined v-if="status === DEPLOY_STATUS.DEPLOYING" class="pill-icon" spin />
       <ClockCircleOutlined v-else-if="status === DEPLOY_STATUS.QUEUED" class="pill-icon" />
@@ -54,7 +54,7 @@ const meta = computed(() => getDeployStatusMeta(props.status))
 const label = computed(() =>
   formatDeployStatusLabel(props.status, props.queuePosition, props.stale),
 )
-/** 只有「已部署」且拿到地址时标签才可点击 */
+/** 仅「已部署」且拿到地址时标签可点击 */
 const clickable = computed(() => props.status === DEPLOY_STATUS.READY && !!props.deployUrl)
 
 const handleClick = () => {

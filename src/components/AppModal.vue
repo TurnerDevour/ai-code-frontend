@@ -50,27 +50,18 @@ import type { Component } from 'vue'
 
 withDefaults(
   defineProps<{
-    /** 是否显示，配合 v-model:open 使用 */
+    /** 配合 v-model:open 使用 */
     open?: boolean
-    /** 标题 */
     title?: string
-    /** 标题下方说明文字 */
     subtitle?: string
-    /** 标题图标 */
     icon?: Component
-    /** 宽度 */
     width?: number | string
-    /** 是否垂直居中 */
     centered?: boolean
-    /** 点击遮罩是否可关闭 */
     maskClosable?: boolean
-    /** 是否展示底部默认确定按钮 */
+    /** 是否展示底部默认确定按钮（#footer 插槽可整体替换底栏） */
     showConfirm?: boolean
-    /** 确定按钮文案 */
     confirmText?: string
-    /** 取消按钮文案 */
     cancelText?: string
-    /** 确定按钮 loading */
     confirmLoading?: boolean
     /** 确定按钮是否为危险操作（红色） */
     confirmDanger?: boolean
@@ -109,7 +100,7 @@ const handleConfirm = () => {
 }
 </script>
 
-<!-- 弹窗会被 teleport 到 body，作用域选择器无法命中内部节点，因此统一使用 :global -->
+<!-- 弹窗被 teleport 到 body，作用域选择器命中不了内部节点，因此统一使用 :global -->
 <style scoped>
 :global(.app-modal .ant-modal-content) {
   padding: 0;
@@ -244,7 +235,6 @@ const handleConfirm = () => {
   box-shadow: 0 10px 22px rgb(40 96 224 / 30%);
 }
 
-/* 表单类内容在弹窗内的统一样式 */
 :global(.app-modal .ant-input),
 :global(.app-modal .ant-input-affix-wrapper) {
   border-radius: 10px;

@@ -6,18 +6,13 @@
 
 <script setup lang="ts">
 /**
- * 表单面板容器。
- *
- * 应用编辑页与个人中心页的 a-form 之前各自写了一份相同的面板与控件样式
- * （浅底输入框 / 聚焦描边 / 以及手机上把固定栅格改成整行独占的兜底），
- * 个人中心页由于没有面板背景，这里用 panel=false 只应用控件样式，保持原有外观。
- *
- * a-form 由默认插槽传入，其节点带的是页面的 scopeId，
- * 因此控件样式写在非 scoped 样式块里，统一以 .form-panel 收敛作用范围。
+ * 表单面板容器：应用编辑页与个人中心页共用面板与控件样式（浅底输入框 / 聚焦描边 /
+ * 窄屏把固定栅格改成整行独占）。a-form 由默认插槽传入，其节点带的是页面的 scopeId，
+ * 故控件样式写在非 scoped 样式块里，统一以 .form-panel 收敛作用范围。
  */
 withDefaults(
   defineProps<{
-    /** 是否展示白色卡片外壳，默认展示 */
+    /** 关掉后只应用控件样式、不要白色卡片外壳（个人中心页） */
     panel?: boolean
   }>(),
   {
@@ -35,7 +30,6 @@ withDefaults(
   box-shadow: 0 12px 36px rgb(31 73 125 / 7%);
 }
 
-/* 个人中心等没有卡片外壳的页面：只保留表单控件样式 */
 .form-panel.is-plain {
   padding: 0;
   background: transparent;
@@ -80,9 +74,8 @@ withDefaults(
   box-shadow: 0 0 0 3px rgb(22 119 255 / 10%);
 }
 
-/* 手机宽度：标签改为每行独占，表单控件铺满整行。
-   否则固定 4/18 的栅格会把输入框压到小于 antd 的固有最小宽度，
-   内容被右侧裁掉（antd 的 .ant-col-* 优先级更高，需要 !important）。 */
+/* 窄屏标签独占一行、控件铺满整行：固定 4/18 栅格会把输入框压到小于 antd 的固有最小宽度，
+   内容被右侧裁掉；antd 的 .ant-col-* 优先级更高，需要 !important。 */
 @media (max-width: 640px) {
   .form-panel .ant-form-item-label,
   .form-panel .ant-form-item-control {

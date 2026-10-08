@@ -16,23 +16,15 @@
 </template>
 
 <script setup lang="ts">
-/**
- * 输入框右下角的「字数计数 + 快捷键提示」。
- *
- * 首页提示词输入框与对话页输入框此前各写了一份完全相同的结构与样式
- * （计数、上限警示色、Enter / Shift+Enter 提示、kbd 胶囊），这里合并成一个组件。
- */
+/** 输入框右下角的「字数计数 + 快捷键提示」，首页与对话页输入框共用 */
 import { computed } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    /** 当前已输入字符数 */
     length: number
-    /** 字符数上限 */
     maxlength: number
-    /** 是否展示快捷键提示 */
     showHint?: boolean
-    /** 窄屏（<=760px）时隐藏快捷键提示，默认否 */
+    /** 窄屏（<=760px）时隐藏快捷键提示 */
     hideHintOnMobile?: boolean
   }>(),
   {
@@ -41,7 +33,7 @@ const props = withDefaults(
   },
 )
 
-/** 达到上限后计数转为警示色 */
+/** 到达上限后计数转警示色 */
 const isAtLimit = computed(() => props.length >= props.maxlength)
 </script>
 

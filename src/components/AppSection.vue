@@ -19,7 +19,6 @@
             <SearchOutlined />
           </template>
         </a-input>
-        <slot name="actions" />
       </div>
     </header>
     <a-spin :spinning="loading">
@@ -29,7 +28,9 @@
           :key="app.id"
           :app="app"
           :can-view-chat="canViewChat(app)"
+          :can-delete="canDelete(app)"
           @view-chat="emit('view-chat', $event)"
+          @deleted="emit('deleted', $event)"
         />
       </div>
       <a-empty v-else class="app-empty" :description="emptyText" />
@@ -49,54 +50,47 @@
 
 <script setup lang="ts">
 /**
- * 首页的应用列表区块（「我的应用」与「精选案例」）。
- *
- * 首页此前把同一段结构写了两遍：区块标题 + 搜索框 + 可选的操作按钮 +
- * 卡片网格 + 空态 + 分页，连同下面的样式一共重复了近百行。
- * 两处真正不同的只有标题文案、数据来源和「我的应用」多一个创建按钮，因此收成一个区块组件。
+ * 首页的应用列表区块（「我的应用」与「精选案例」）：标题 + 搜索 + 卡片网格 + 空态 + 分页。
+ * 两处差异只有标题文案、数据来源和「我的应用」多一个创建按钮。
  */
 import { SearchOutlined } from '@ant-design/icons-vue'
 import AppCard from '@/components/AppCard.vue'
 
 withDefaults(
   defineProps<{
-    /** 区块标题 */
     title: string
-    /** 标题右侧的说明文字 */
     tip: string
-    /** 搜索框占位文案 */
     searchPlaceholder: string
-    /** 空态文案 */
     emptyText: string
-    /** 搜索关键字（配合 v-model:keyword 使用） */
+    /** 支持 v-model:keyword */
     keyword?: string
-    /** 当前页应用列表 */
     apps: API.AppVO[]
-    /** 应用总数 */
     total: number
-    /** 当前页码 */
     pageNum: number
-    /** 每页数量 */
     pageSize: number
-    /** 列表加载中 */
     loading?: boolean
     /** 单张卡片是否可进入对话（由页面按登录态判定） */
     canViewChat: (app: API.AppVO) => boolean
+    /** 单张卡片是否可删除（默认都不可删，仅「我的应用」传判定函数） */
+    canDelete?: (app: API.AppVO) => boolean
   }>(),
   {
     keyword: '',
     loading: false,
+    canDelete: () => false,
   },
 )
 
 const emit = defineEmits<{
   (e: 'update:keyword', value: string): void
-  /** 回车搜索 / 点搜索按钮 */
+  /** 回车或点搜索按钮 */
   (e: 'search'): void
   /** 搜索框内容变化（清空时页面可立即刷新） */
   (e: 'clear', event: Event): void
   (e: 'change-page', page: number): void
   (e: 'view-chat', app: API.AppVO): void
+  /** 某张卡片删除成功（列表需刷新） */
+  (e: 'deleted', app: API.AppVO): void
 }>()
 </script>
 
@@ -152,8 +146,8 @@ const emit = defineEmits<{
 .app-grid {
   display: grid;
 
-  /* 单列宽度上限 440px：应用只有 1~2 个时，卡片不会被拉伸成细长条。
-     列数与列宽由下面的媒体查询接管，容器内没有余量，左边缘始终与标题对齐 */
+  /* 单列宽度上限 440px：应用只有 1~2 个时，卡片不会被拉伸成细长条；
+     容器内没有余量，左边缘始终与标题对齐，列数与列宽由下面的媒体查询接管 */
   grid-template-columns: repeat(2, minmax(0, 440px));
   gap: 24px;
 }
@@ -171,14 +165,13 @@ const emit = defineEmits<{
   margin-top: 26px;
 }
 
-/* 宽屏：每行 3 列（与设计稿一致），单列最多 440px */
+/* 宽屏：每行 3 列，单列最多 440px */
 @media (min-width: 1200px) {
   .app-grid {
     grid-template-columns: repeat(3, minmax(0, 440px));
   }
 }
 
-/* 手机：单列 */
 @media (max-width: 760px) {
   .app-grid {
     grid-template-columns: minmax(0, 1fr);

@@ -15,13 +15,10 @@
 import type { Component } from 'vue'
 
 defineProps<{
-  /** 顶部英文小标题 */
+  /** 标题上方的英文小标题 */
   eyebrow?: string
-  /** 页面标题 */
   title: string
-  /** 标题下方的说明文字 */
   description?: string
-  /** 右侧渐变色图标 */
   icon?: Component
 }>()
 </script>

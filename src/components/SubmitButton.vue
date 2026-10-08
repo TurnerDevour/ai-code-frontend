@@ -14,22 +14,14 @@
 </template>
 
 <script setup lang="ts">
-/**
- * 圆形的「发送 / 提交」渐变按钮。
- *
- * 首页提示词输入框与对话页输入框各写了一份同样的按钮：品牌渐变底、
- * 加载中换成 LoadingOutlined、禁用时半透明，只有直径差 2px。
- * 这里以 size 区分，两处共用。
- */
+/** 圆形「发送 / 提交」按钮，首页与对话页共用；size 区分两处直径差 2px 的差异 */
 import { ArrowUpOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 
 withDefaults(
   defineProps<{
-    /** 是否处于加载中（图标换成旋转 loading） */
     loading?: boolean
-    /** 是否禁用 */
     disabled?: boolean
-    /** 尺寸：md 用于首页大输入框，sm 用于对话页工具条 */
+    /** md 用于首页大输入框，sm 用于对话页工具条 */
     size?: 'md' | 'sm'
   }>(),
   {

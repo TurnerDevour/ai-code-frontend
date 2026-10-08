@@ -3,12 +3,10 @@ import { message } from 'ant-design-vue'
 import { ACCESS } from '@/constant/access'
 import router from '@/router'
 
-// 是否为首次获取登录用户
+// 只在首次路由跳转时拉取登录用户，避免每次跳转都请求
 let firstFetchLoginUser = true
 
-/**
- * 全局权限校验
- */
+// 全局权限校验：无权限与未登录分别重定向并带上 redirect 回跳地址
 router.beforeEach(async (to, from, next) => {
   const loginUserStore = useLoginUserStore()
   let loginUser = loginUserStore.loginUser

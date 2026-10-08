@@ -5,7 +5,7 @@ import GlobalFooter from '../components/GlobalFooter.vue'
 import GlobalHeader from '../components/GlobalHeader.vue'
 
 const route = useRoute()
-// 对话页需要铺满整个视口，因此不展示底部版权信息
+// 对话页需要铺满视口，不展示底部版权信息
 const showFooter = computed(() => !route.meta.hideFooter)
 </script>
 
@@ -35,15 +35,14 @@ const showFooter = computed(() => !route.meta.hideFooter)
   flex: 1;
   min-height: 0;
 
-  /* 宽度完全交给 flex 拉伸：不能再写 max-width: 99%（或任何百分比宽度），
-     那会让容器的可用宽度比视口小 1%，内容一旦顶到右边界就会常驻横向滚动条 */
+  /* 宽度交给 flex：不能写 max-width: 99% 之类的百分比宽度，
+     否则可用宽度比视口少 1%，内容顶到右边界就会常驻横向滚动条 */
   width: 100%;
   max-width: 100%;
   padding: clamp(16px, 1.8vw, 24px);
   margin: 0 auto;
 
-  /* 纵向滚动由内容区承担；横向一律不出现滚动条，
-     避免装饰性元素（光斑等）把整页撑出横向滚动条 */
+  /* 纵向滚动由内容区承担；横向一律隐藏，避免光斑等装饰元素撑出横向滚动条 */
   overflow-x: hidden;
   overflow-y: auto;
 }

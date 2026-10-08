@@ -1,5 +1,5 @@
 <template>
-  <article class="app-card" :class="{ 'is-chat-disabled': !canViewChat }" @click="handleViewChat">
+  <article class="app-card" :class="{ 'is-chat-disabled': !canViewChat }" @click="handleCardClick">
     <div class="card-cover">
       <img
         v-if="app.cover"
@@ -19,7 +19,7 @@
     </div>
     <div class="card-body">
       <h3 class="card-title" :title="app.appName">{{ app.appName || '未命名应用' }}</h3>
-      <!-- 生成配置：代码模式 + AI 模型（老数据可能没有，缺一项就不展示该标签） -->
+      <!-- 生成配置：老数据可能缺字段，缺一项就不展示该标签 -->
       <div v-if="app.codeGenType || app.aiModelType" class="card-config">
         <CodeGenTypeTag v-if="app.codeGenType" :code-gen-type="app.codeGenType" show-icon />
         <AiModelTypeTag v-if="app.aiModelType" :ai-model-type="app.aiModelType" show-icon />
@@ -34,7 +34,7 @@
       </div>
     </div>
     <footer class="card-actions">
-      <!-- 无权限时不用原生 disabled：那样点击事件不会触发，用户得不到任何解释。
+      <!-- 不用原生 disabled：那样点击事件不触发，用户得不到任何解释。
            这里用 aria-disabled + 禁用态样式，点击时给出提示 -->
       <button
         type="button"
@@ -56,49 +56,85 @@
         <ExportOutlined />
         查看作品
       </button>
+      <!-- 删除逻辑与「应用详情」共用 useDeleteApp -->
+      <DeleteAppButton v-if="canDelete" @confirm="handleDelete">
+        <button type="button" class="card-action delete-action" :disabled="deleting">
+          <LoadingOutlined v-if="deleting" />
+          <DeleteOutlined v-else />
+          删除
+        </button>
+      </DeleteAppButton>
     </footer>
   </article>
 </template>
 
 <script setup lang="ts">
-import { UserOutlined, StarFilled, MessageOutlined, ExportOutlined } from '@ant-design/icons-vue'
+import {
+  UserOutlined,
+  StarFilled,
+  MessageOutlined,
+  ExportOutlined,
+  DeleteOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons-vue'
 import { formatRelativeTime } from '@/utils/time'
 import { GOOD_APP_PRIORITY } from '@/constant/app'
 import { getDeployUrl } from '@/utils/apiUrl'
-import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
 import AiModelTypeTag from '@/components/AiModelTypeTag.vue'
+import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
+import DeleteAppButton from '@/components/DeleteAppButton.vue'
+import { useDeleteApp } from '@/composables/useDeleteApp'
 
 const props = withDefaults(
   defineProps<{
     app: API.AppVO
-    /** 是否展示精选标识 */
     showPriority?: boolean
-    /** 是否可以查看该应用的对话（创建者与当前登录者一致时才放行） */
+    /** 是否可查看对话（仅创建者与当前登录者一致时放行） */
     canViewChat?: boolean
+    /** 是否可删除（仅本人创建的应用可删） */
+    canDelete?: boolean
   }>(),
   {
     showPriority: true,
     canViewChat: true,
+    canDelete: false,
   },
 )
 
 const emit = defineEmits<{
   /** 点击卡片或「查看对话」 */
   (e: 'view-chat', app: API.AppVO): void
+  /** 删除成功（列表需刷新） */
+  (e: 'deleted', app: API.AppVO): void
 }>()
 
-// 点击整卡等于点击「查看对话」：权限由首页统一校验，
-// 无权限时首页会拦截并提示「无权限查看该应用」
+const { deleting, deleteAppById } = useDeleteApp()
+
+// 整卡点击等同「查看对话」；权限校验与提示都由首页统一处理
 const handleViewChat = () => {
   emit('view-chat', props.app)
 }
 
-// 查看作品：部署地址与应用生成产物的浏览地址不同
+/** 整卡点击：点在底部操作区时不跳转（兜底，避免以后新增按钮漏加 .stop） */
+const handleCardClick = (event: MouseEvent) => {
+  if (event.target instanceof HTMLElement && event.target.closest('.card-actions')) {
+    return
+  }
+  handleViewChat()
+}
+
+// 部署地址与应用生成产物的浏览地址不同，因此走 getDeployUrl
 const handleViewWork = () => {
   if (!props.app.deployKey) {
     return
   }
   window.open(getDeployUrl(props.app.deployKey), '_blank')
+}
+
+const handleDelete = async () => {
+  if (await deleteAppById(props.app.id)) {
+    emit('deleted', props.app)
+  }
 }
 </script>
 
@@ -107,8 +143,7 @@ const handleViewWork = () => {
   display: flex;
   flex-direction: column;
 
-  /* 宽度跟随所在列（列宽上限由首页 .app-grid 的 440px 决定），
-     卡片自身不再撑宽，避免应用很少时被拉成细长条 */
+  /* 列宽上限由首页 .app-grid 的 440px 决定，卡片不撑宽，避免应用很少时被拉成细长条 */
   width: 100%;
   overflow: hidden;
   cursor: pointer;
@@ -206,7 +241,6 @@ const handleViewWork = () => {
   white-space: nowrap;
 }
 
-/* 生成配置：与卡片内其它信息块统一为浅底 + 细描边 + 10px 圆角 */
 .card-config {
   display: flex;
   flex-wrap: wrap;
@@ -288,6 +322,26 @@ const handleViewWork = () => {
   box-shadow: 0 6px 14px rgb(18 165 148 / 26%);
 }
 
+/* 删除按钮：几何与「查看对话 / 查看作品」一致，配色走危险色，仅在悬浮时填充实心以免在卡片上抢眼 */
+.delete-action {
+  color: #e85d75;
+  border-color: #ffd8df;
+  background: #fff7f8;
+}
+
+.delete-action:hover:not(:disabled) {
+  color: #fff;
+  border-color: #f0667c;
+  background: #f0667c;
+  box-shadow: 0 6px 14px rgb(240 102 124 / 26%);
+}
+
+.delete-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
 .author {
   max-width: 96px;
   overflow: hidden;
@@ -309,7 +363,7 @@ const handleViewWork = () => {
   white-space: nowrap;
 }
 
-/* 非创建者：整卡不再有可点击的反馈，避免误导成能进去 */
+/* 非创建者：整卡无点击反馈，避免误导成能进去 */
 .app-card.is-chat-disabled {
   cursor: default;
 }
@@ -320,8 +374,7 @@ const handleViewWork = () => {
   transform: none;
 }
 
-/* 「查看对话」禁用态：置灰 + 禁止光标，hover 时给出文字说明，
-   点击仍会冒泡到按钮自身的处理函数，从而弹出「无权限查看该应用」 */
+/* 「查看对话」禁用态：置灰 + 禁止光标，hover 给文字说明；点击仍冒泡到按钮自身，弹出「无权限查看该应用」 */
 .card-action.chat-action.is-disabled {
   color: #9aa9bf;
   background: #f5f7fb;

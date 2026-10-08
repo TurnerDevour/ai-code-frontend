@@ -1,26 +1,14 @@
 /**
  * 后端时间字符串的解析与展示。
- *
- * 后端不同接口下发的时间形态并不统一：
- *   - 列表 / 详情接口给的是 "2026-10-07 13:42:47"（`yyyy-MM-dd HH:mm:ss`）
- *   - 部署状态接口给的是 ISO 8601 的 "2026-10-07T13:45:08"
- * dayjs 自带的解析器能同时吃下这两种写法（也能兜住带时区的 ISO 串），
- * 因此统一交给 dayjs，不再手写 `new Date(time.replace(/-/g, '/'))` 的 Safari 兜底
- * ——那个写法遇到带 `T` 的 ISO 串会解析失败。
+ * 列表 / 详情接口给 `yyyy-MM-dd HH:mm:ss`，部署状态接口给 ISO 8601（带时区也能吃下），
+ * 两种形态都交给 dayjs；不要改回 `new Date(time.replace(/-/g, '/'))`，它解析不了带 T 的 ISO 串。
  */
 import dayjs from 'dayjs'
 
-/** 统一的时间展示格式：与后端 `createTime` 的写法保持一致 */
+/** 统一展示格式，与后端 createTime 的写法一致 */
 export const DATE_TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
-/**
- * 把后端下发的时间格式化为统一的展示格式
- *
- * @param time   时间字符串（ISO 8601 或 `yyyy-MM-dd HH:mm:ss`）
- * @param format 目标格式，默认 {@link DATE_TIME_FORMAT}
- *
- * @returns 格式化后的时间；空值返回空串；无法解析时**原样返回**，避免把数据弄丢
- */
+/** 空值返回空串；无法解析时原样返回，避免把数据弄丢 */
 export const formatDateTime = (time?: string, format: string = DATE_TIME_FORMAT) => {
   if (!time) {
     return ''
@@ -29,11 +17,7 @@ export const formatDateTime = (time?: string, format: string = DATE_TIME_FORMAT)
   return parsed.isValid() ? parsed.format(format) : time
 }
 
-/**
- * 将后端返回的时间字符串解析为时间戳，用于排序与比较
- * @param time 时间字符串
- * @returns 时间戳，无法解析时返回 0
- */
+/** 解析为时间戳，用于排序与比较；无法解析返回 0 */
 export const parseTime = (time?: string) => {
   if (!time) {
     return 0
@@ -42,10 +26,7 @@ export const parseTime = (time?: string) => {
   return parsed.isValid() ? parsed.valueOf() : 0
 }
 
-/**
- * 将时间格式化为「刚刚 / x 分钟前 / x 小时前 / x 天前 / 日期」的形式
- * @param time 时间字符串
- */
+/** 格式化为「刚刚 / x 分钟前 / x 小时前 / x 天前」，超过 30 天显示日期 */
 export const formatRelativeTime = (time?: string) => {
   if (!time) {
     return ''

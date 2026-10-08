@@ -1,14 +1,9 @@
 /**
  * 可视化编辑（点选预览页元素）相关工具
  *
- * 实现思路：
- *   1. 生成的网站不会带任何编辑器逻辑，因此由主站把一段编辑脚本注入到预览 iframe 的文档中
- *      （主站与预览页同源，可以直接拿到 contentDocument）；
- *   2. 编辑脚本负责悬浮高亮、点击选中，并用 window.parent.postMessage 把选中的元素信息回传给主站；
- *   3. 主站通过 postMessage 下发「开启 / 关闭编辑模式」「清除选中」等指令。
- *
- * 注意：预览地址（VITE_APP_PREVIEW_BASE_URL）必须与主站同源，否则无法注入脚本，
- * 此时会通过 onUnsupported 回调通知调用方做降级提示。
+ * 生成的网站不带编辑器逻辑，因此由主站把编辑脚本注入预览 iframe 的文档（要求同源，才能拿到
+ * contentDocument）：脚本负责悬浮高亮与点击选中，通过 postMessage 与主站互传选中信息和
+ * 「开启 / 关闭编辑模式」「清除选中」指令。不同源时无法注入，走 onUnavailable 回调通知调用方降级。
  */
 
 /** 主站与预览页约定的消息来源标识，避免误处理其它窗口的消息 */
@@ -55,7 +50,7 @@ export interface VisualEditorElement {
   selector: string
   /** 元素文本（空白已折叠并截断） */
   text: string
-  /** outerHTML 摘要（已截断），便于 AI 了解元素结构 */
+  /** outerHTML 摘要（已截断） */
   html: string
 }
 
@@ -125,14 +120,13 @@ export interface VisualEditorController {
  */
 const VISUAL_EDITOR_SCRIPT = String.raw`
 (function () {
-  // 同一份文档只注入一次。标记必须挂在 document 上：
-  // iframe 首次加载前存在一份 about:blank 文档，真正的页面加载时 window 对象会被复用，
-  // 只看 window 会误判成「已注入」，而新文档里其实没有任何监听器（表现为点元素没反应）
+  // 标记挂在 document 上而非 window：about:blank 切到真实页面时 window 会被复用，
+  // 只判断 window 会把新文档误判成「已注入」，实际没有监听器（表现为点元素没反应）
   if (document.__AI_CODE_VISUAL_EDITOR__) {
     return
   }
 
-  // window 被复用的情况下，先释放上一份文档残留的监听，避免旧实例继续回执
+  // window 被复用时，先释放上一份文档残留的监听，避免旧实例继续回执
   var previousApi = window.__AI_CODE_VISUAL_EDITOR__
   if (previousApi && typeof previousApi.dispose === 'function') {
     previousApi.dispose()
@@ -147,7 +141,7 @@ const VISUAL_EDITOR_SCRIPT = String.raw`
     'box-shadow': '0 0 0 3px rgba(22, 119, 255, 0.22)',
     cursor: 'pointer',
   }
-  // 会被编辑脚本临时改写的行内样式，取消高亮时按快照还原，避免污染页面自身样式
+  // 会被临时改写的行内样式，取消高亮时按快照还原，避免污染页面自身样式
   var PAINTED_PROPS = ['outline', 'outline-offset', 'box-shadow', 'cursor']
   var MAX_TEXT_LENGTH = 80
   var MAX_HTML_LENGTH = 240
@@ -212,7 +206,7 @@ const VISUAL_EDITOR_SCRIPT = String.raw`
     return text.length > maxLength ? text.slice(0, maxLength) + '…' : text
   }
 
-  // 选择器：有 id 直接用 id 定位，否则按「标签 + 前两个 class」逐级向上拼，最多 5 层
+  // 选择器：有 id 直接用 id 定位，否则按「标签 + 前两个 class」逐级向上拼，最多 MAX_SELECTOR_DEPTH 层
   function buildSelector(element) {
     var parts = []
     var node = element
@@ -360,12 +354,12 @@ const VISUAL_EDITOR_SCRIPT = String.raw`
   document.__AI_CODE_VISUAL_EDITOR__ = api
   window.__AI_CODE_VISUAL_EDITOR__ = api
 
-  // 通知主站脚本已就绪，主站据此同步当前的编辑模式
+  // 通知主站脚本已就绪，主站据此补一次编辑模式同步
   postToParent('ready')
 })()
 `
 
-/** 统一把回传字段收敛成字符串，避免预览页传入异常数据时渲染出错 */
+/** 回传字段统一收敛成字符串，避免预览页传入异常数据时渲染出错 */
 const toSafeText = (value: unknown) => (typeof value === 'string' ? value : '')
 
 /** 规整 iframe 回传的元素信息 */
@@ -378,10 +372,7 @@ const normalizeElement = (raw: Partial<VisualEditorElement>): VisualEditorElemen
   html: toSafeText(raw.html),
 })
 
-/**
- * 元素标识：标签名 + id + 前两个 class，如 button#submit.btn.btn-primary
- * 用于提示条上的简短展示
- */
+/** 提示条上展示的元素标识：标签名 + id + 前两个 class，如 button#submit.btn.btn-primary */
 export const formatVisualEditorElement = (element: VisualEditorElement) => {
   const id = element.id ? `#${element.id}` : ''
   const classes = element.className.trim().split(/\s+/).filter(Boolean).slice(0, 2)
@@ -389,11 +380,7 @@ export const formatVisualEditorElement = (element: VisualEditorElement) => {
   return `${element.tagName}${id}${suffix}`
 }
 
-/**
- * 把选中的元素信息拼进提示词：AI 需要同时知道「改哪个元素」和「改成什么样」
- * @param element 预览页中选中的元素
- * @param prompt 用户输入的修改需求
- */
+/** 把选中的元素信息拼进提示词：AI 需要同时知道「改哪个元素」和「改成什么样」 */
 export const buildVisualEditPrompt = (element: VisualEditorElement, prompt: string) => {
   const elementLines = [
     `- 标签：${element.tagName}`,
@@ -424,9 +411,8 @@ export const createVisualEditor = (options: VisualEditorOptions): VisualEditorCo
   }
 
   /**
-   * 判断「当前这份文档」里是否已经装好编辑脚本
-   * 必须按 document 判断：iframe 从 about:blank 切到真实页面时 window 会被复用，
-   * 旧文档留下的 window 标记会让人误以为已经注入，导致真实页面里始终没有监听器
+   * 判断「当前这份文档」里是否已装好编辑脚本
+   * 与脚本内的判断同理：window 会被复用（about:blank → 真实页面），必须按 document 判断
    */
   const isInjected = (doc: Document | null) =>
     Boolean(doc && (doc as unknown as Record<string, unknown>)[VISUAL_EDITOR_HOST_KEY])

@@ -18,14 +18,13 @@ const props = defineProps<{
   messageType?: string
 }>()
 
-/** 各消息类型对应的色板与图标 */
 const MESSAGE_TYPE_META: Record<string, { tone: PillTagTone; icon: Component }> = {
   [CHAT_MESSAGE_TYPE.USER]: { tone: 'blue', icon: UserOutlined },
   [CHAT_MESSAGE_TYPE.AI]: { tone: 'teal', icon: RobotOutlined },
   [CHAT_MESSAGE_TYPE.ERROR]: { tone: 'rose', icon: WarningOutlined },
 }
 
-// 未知类型统一走默认样式
+// 未知类型（如后端新增枚举）统一走默认样式
 const meta = computed(
   () =>
     MESSAGE_TYPE_META[props.messageType ?? ''] ?? {

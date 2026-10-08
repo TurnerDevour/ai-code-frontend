@@ -3,7 +3,7 @@
     <span class="card-glow glow-left"></span>
     <span class="card-glow glow-right"></span>
 
-    <!-- 预设提示词：置于输入卡片顶部，快速填充并直接创建 -->
+    <!-- 预设提示词：点击即填充并直接创建 -->
     <div v-if="presets.length" class="prompt-presets">
       <span class="presets-label">
         <BulbOutlined />
@@ -24,7 +24,6 @@
       </div>
     </div>
 
-    <!-- 提示词输入区 -->
     <div class="prompt-editor">
       <a-textarea
         v-model:value="value"
@@ -37,7 +36,6 @@
       />
     </div>
 
-    <!-- 工具栏：生成配置（左） + 字数与发送（右） -->
     <div class="prompt-toolbar">
       <div class="toolbar-config">
         <div class="config-field">
@@ -49,6 +47,7 @@
             :disabled="loading"
             :options="codeGenTypeOptions"
             :get-popup-container="getPopupContainer"
+            :dropdown-match-select-width="false"
           >
             <template #option="{ label, icon }">
               <span class="select-option">
@@ -70,6 +69,7 @@
             :disabled="loading"
             :options="aiModelTypeOptions"
             :get-popup-container="getPopupContainer"
+            :dropdown-match-select-width="false"
           >
             <template #option="{ label, icon }">
               <span class="select-option">
@@ -115,7 +115,6 @@ import type { CodeGenType } from '@/constant/codeGenType'
 import { AI_MODEL_TYPE, AI_MODEL_TYPE_OPTIONS } from '@/constant/aiModelType'
 import type { AiModelType } from '@/constant/aiModelType'
 
-/** 每个选项配一个图标，让下拉列表更易扫读 */
 const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
   [CODE_GEN_TYPE.HTML]: FileTextOutlined,
   [CODE_GEN_TYPE.MULTI_FILE]: CodeOutlined,
@@ -124,7 +123,7 @@ const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
 const AI_MODEL_TYPE_ICONS: Record<string, unknown> = {
   [AI_MODEL_TYPE.DEEPSEEK_FLASH]: ThunderboltOutlined,
   [AI_MODEL_TYPE.DEEPSEEK_V4_PRO]: RocketOutlined,
-  // 阿里云百炼：旗舰模型用皇冠，高性价比模型用云（与 DeepSeek 的闪电 / 火箭区分开）
+  // 阿里云百炼：旗舰用皇冠、高性价比用云，与 DeepSeek 的闪电 / 火箭区分
   [AI_MODEL_TYPE.QWEN_3_8_MAX]: CrownOutlined,
   [AI_MODEL_TYPE.QWEN_3_7_PLUS]: CloudOutlined,
 }
@@ -138,7 +137,6 @@ const props = withDefaults(
     placeholder?: string
     /** 预设提示词，不传则不展示推荐区域 */
     presets?: readonly string[]
-    /** 输入字数限制，默认 2000 */
     maxlength?: number
     codeGenType?: CodeGenType
     aiModelType?: AiModelType
@@ -180,7 +178,7 @@ const aiModelType = computed({
   set: (val: AiModelType) => emit('update:aiModelType', val),
 })
 
-// 给下拉选项挂上图标组件（label / value 仍沿用常量定义，避免影响其它页面）
+// 只补 icon，label / value 仍沿用常量定义，避免影响其它页面
 const codeGenTypeOptions = CODE_GEN_TYPE_OPTIONS.map((option) => ({
   ...option,
   icon: CODE_GEN_TYPE_ICONS[option.value] ?? FileTextOutlined,
@@ -191,7 +189,7 @@ const aiModelTypeOptions = AI_MODEL_TYPE_OPTIONS.map((option) => ({
 }))
 
 const cardRef = ref<HTMLElement | null>(null)
-// 下拉浮层挂到卡片内部，避免浮层独立挂载在 body 上时脱离视觉上下文
+// 浮层挂在卡片内，避免独立挂载在 body 上后脱离视觉上下文
 const getPopupContainer = () => cardRef.value ?? document.body
 
 const handleSubmit = () => {
@@ -214,12 +212,11 @@ const handlePreset = (preset: string) => {
   })
 }
 
-// 回车提交、Shift + 回车换行、输入法组合期间不提交（与对话页输入框共用同一套规则）
+// 回车提交、Shift+回车换行，输入法组合期间不提交（与对话页输入框共用）
 const { handlePressEnter } = useEnterSubmit(handleSubmit)
 </script>
 
 <style scoped>
-/* ---- 卡片外壳 ---- */
 .prompt-input {
   position: relative;
   padding: 14px 16px 12px;
@@ -235,7 +232,7 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   backdrop-filter: blur(12px);
 }
 
-/* 卡片内的两个柔光装饰，呼应首页背景光斑 */
+/* 两个柔光装饰，呼应首页背景光斑 */
 .card-glow {
   position: absolute;
   z-index: 0;
@@ -271,7 +268,6 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   z-index: 1;
 }
 
-/* ---- 预设提示词 ---- */
 .prompt-presets {
   display: flex;
   align-items: center;
@@ -366,7 +362,6 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   white-space: nowrap;
 }
 
-/* ---- 输入区 ---- */
 .prompt-editor {
   padding: 10px 2px 2px;
 }
@@ -397,7 +392,6 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   color: #9aa9bf;
 }
 
-/* ---- 工具栏 ---- */
 .prompt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -437,7 +431,7 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   background: #eaf0f9;
 }
 
-/* 下拉框：胶囊形，与站点按钮 / 搜索框的圆角与配色统一 */
+/* 下拉框圆角 / 配色与站点按钮、搜索框统一 */
 .config-select {
   min-width: 132px;
 }
@@ -483,9 +477,7 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   box-shadow: 0 0 0 3px rgb(22 119 255 / 9%) !important;
 }
 
-/* ---- 右侧：字数 / 快捷键 / 发送 ----
-   字数计数与快捷键提示由 InputHintBar 渲染，发送按钮由 SubmitButton 渲染，
-   两者与对话页输入框共用同一套实现 */
+/* 字数 / 快捷键提示来自 InputHintBar，发送按钮来自 SubmitButton，与对话页共用 */
 .toolbar-actions {
   display: flex;
   flex: 1;
@@ -495,13 +487,11 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
   min-width: 0;
 }
 
-/* 生成中：卡片整体弱化交互提示 */
 .prompt-input.is-loading :deep(.ant-select-selector) {
   background: #f4f7fc !important;
 }
 
-/* 中等宽度（平板 / 小笔记本，<=960px）：工具栏换行，
-   配置区独占一行，字数 / 发送靠右，避免中间宽度下互相挤压 */
+/* <=960px：工具栏换行，避免配置区与字数 / 发送在中间宽度下互相挤压 */
 @media (max-width: 960px) {
   .toolbar-config {
     flex: 1 1 100%;
@@ -557,15 +547,12 @@ const { handlePressEnter } = useEnterSubmit(handleSubmit)
 </style>
 
 <!--
-  下拉浮层通过 getPopupContainer 挂载到卡片内，但选项节点由 ant-design-vue 的
-  vc-select 渲染（带自己的 scopeId），且浮层可能被 Teleport 到组件根节点之外，
-  因此这里用 popup-class-name 定位，走非 scoped 样式。
+  浮层由 vc-select 渲染且可能被 Teleport 出组件根节点，因此用 popup-class-name 走非 scoped 样式。
+  两个 select 都设 dropdown-match-select-width=false：默认 true 会把浮层宽锁成触发器宽度，模型名一长就被省略号截断。
+  样式表里不要写 min-width —— vc-select 会在浮层元素上内联 min-width 且优先级更高，写了不生效，需要下限请用 dropdown-style。
 -->
 <style>
 .prompt-select-dropdown {
-  /* 选项宽度取"选中项"的宽度，而 Qwen 两个模型的 label（如 Qwen3.7-Plus（阿里云百炼高性价比））
-     明显比 DeepSeek 长；不抬高下限的话，选中 DeepSeek 时弹出层会被压窄、Qwen 的 label 被省略号截断 */
-  min-width: 280px;
   padding: 6px;
   margin-top: 4px;
   border: 1px solid #e8eff9;

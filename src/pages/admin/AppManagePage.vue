@@ -155,8 +155,7 @@ import { CODE_GEN_TYPE_OPTIONS } from '@/constant/codeGenType'
 const router = useRouter()
 const { handle: handleResponse } = useMessage()
 
-// 列宽由 table-layout: fixed 精确分配：
-// id 列给足 19 位雪花 id 的单行宽度，操作列预留「编辑+取消精选+删除」三个按钮的宽度
+// 列宽由 table-layout: fixed 精确分配：id 列容下 19 位雪花 id，操作列容下三个按钮
 const columns = [
   {
     title: 'id',
@@ -208,7 +207,7 @@ const columns = [
   },
 ]
 
-// 优先级筛选项，null 表示全部（可选项复用应用常量，与编辑页保持一致）
+// 优先级筛选项，null 表示全部（选项复用应用常量，与编辑页一致）
 const priorityFilter = ref<number | null>(null)
 const priorityOptions = [{ label: '全部', value: null }, ...APP_PRIORITY_OPTIONS]
 
@@ -222,6 +221,7 @@ const {
   search: doSearch,
   changePage: doTableChange,
   handleInputClear: handleSearchChange,
+  reloadAfterRemove,
 } = usePagedQuery<API.AppVO, API.AppQueryRequest>({
   initialQuery: { pageNum: 1, pageSize: MANAGE_PAGE_SIZE },
   pageSize: MANAGE_PAGE_SIZE,
@@ -241,11 +241,8 @@ const doDelete = async (id?: string) => {
   }
   const res = await deleteAppByAdmin({ id })
   if (handleResponse(res, { success: '删除成功', fail: '删除失败' })) {
-    // 删除后如果当前页没有数据，则回退一页
-    if (dataList.value.length === 1 && (searchParams.pageNum ?? 1) > 1) {
-      searchParams.pageNum = (searchParams.pageNum ?? 1) - 1
-    }
-    await fetchData()
+    // 本地先摘掉这一行，再重拉一页校准；当前页空了会自动回退一页
+    await reloadAfterRemove(id)
   }
 }
 
