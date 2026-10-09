@@ -69,37 +69,28 @@ const menuItems: RouteRecordRaw[] = [
     component: () => import('@/pages/user/UserProfilePage.vue'),
   },
   {
-    path: '/admin/userManage',
-    name: 'userManage',
+    path: '/admin/operationManage',
+    name: 'operationManage',
     meta: {
-      title: '用户管理',
-      icon: 'UserAddOutlined',
+      title: '运营管理',
+      icon: 'DashboardOutlined',
       showNav: true,
       role: ACCESS.ADMIN,
     },
-    component: () => import('@/pages/admin/UserManagePage.vue'),
+    component: () => import('@/pages/admin/OperationManagePage.vue'),
+  },
+  // 原用户 / 应用 / 对话管理三个菜单已并入运营管理的标签页，旧地址保留重定向，避免书签失效
+  {
+    path: '/admin/userManage',
+    redirect: { path: '/admin/operationManage', query: { tab: 'user' } },
   },
   {
     path: '/admin/appManage',
-    name: 'appManage',
-    meta: {
-      title: '应用管理',
-      icon: 'AppstoreOutlined',
-      showNav: true,
-      role: ACCESS.ADMIN,
-    },
-    component: () => import('@/pages/admin/AppManagePage.vue'),
+    redirect: { path: '/admin/operationManage', query: { tab: 'app' } },
   },
   {
     path: '/admin/chatManage',
-    name: 'chatManage',
-    meta: {
-      title: '对话管理',
-      icon: 'CommentOutlined',
-      showNav: true,
-      role: ACCESS.ADMIN,
-    },
-    component: () => import('@/pages/admin/ChatManagePage.vue'),
+    redirect: { path: '/admin/operationManage', query: { tab: 'chatHistory' } },
   },
   {
     path: '/admin/appEdit/:id',

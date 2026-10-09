@@ -22,8 +22,10 @@ defineProps<{
 
 <style scoped>
 .admin-search-panel {
-  padding: 20px 24px;
-  margin-bottom: 22px;
+  /* flex: none：作为纵向 flex 项时高度按内容固定，不被下方的列表区域挤压 */
+  flex: none;
+  padding: 16px 24px;
+  margin-bottom: 16px;
   background: rgb(255 255 255 / 88%);
   border: 1px solid #edf2fa;
   border-radius: 18px;

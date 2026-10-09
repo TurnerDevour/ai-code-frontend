@@ -7,7 +7,6 @@
     <div class="table-heading">
       <div>
         <h2>{{ title }}</h2>
-        <span>共 {{ total }} {{ unit }}</span>
       </div>
       <slot name="heading-extra" />
     </div>
@@ -51,6 +50,7 @@ const minWidthStyle = computed(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   background: rgb(255 255 255 / 88%);
   border: 1px solid #edf2fa;
@@ -62,7 +62,7 @@ const minWidthStyle = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px 15px;
+  padding: 12px 24px 10px;
 }
 
 .table-heading h2 {
@@ -85,6 +85,9 @@ const minWidthStyle = computed(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
+
+  /* min-height: 0：让表格区域能在卡片内被压缩，纵向滚动交给 .ant-table */
+  min-height: 0;
   padding: 0 8px 8px;
 }
 
@@ -93,10 +96,15 @@ const minWidthStyle = computed(() => {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-height: 0;
 }
 
+/* 列表区域占满卡片剩余高度并在内部滚动（表头吸附、分页常驻卡片底部），
+   因此外层页面不再因为表格行数多而出现整页滚动条 */
 .admin-table-panel .ant-table {
   flex: 1;
+  min-height: 0;
+  overflow: auto;
   color: #52627a;
   font-size: 13px;
 }
@@ -118,10 +126,15 @@ const minWidthStyle = computed(() => {
 }
 
 .admin-table-panel .ant-table-thead > tr > th {
+  /* 表头吸附在列表区域顶部：滚动时始终看得到列名 */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   color: #587095;
   font-weight: 600;
   background: #f5f8fd;
   border-bottom: 0;
+  box-shadow: inset 0 -1px 0 #e6eefb;
 }
 
 .admin-table-panel .ant-table-thead > tr > th::before {
@@ -144,8 +157,47 @@ const minWidthStyle = computed(() => {
   font-size: 12px;
 }
 
-.admin-table-panel .ant-pagination {
-  padding: 8px 12px 0;
+/* antd 给表格内的分页设了 `.ant-table-wrapper .ant-table-pagination.ant-pagination` 的
+   16px 上下外边距，这里用更高权重的选择器清零：分页常驻卡片底部，不白占列表区域的高度 */
+.admin-table-panel .ant-table-wrapper .ant-table-pagination.ant-pagination {
+  margin: 0;
+  padding: 6px 12px 0;
+}
+
+/* 列表区域的滚动条：与对话页一致 —— 透明轨道 + 渐变细滑块 */
+.admin-table-panel .ant-table::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.admin-table-panel .ant-table::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.admin-table-panel .ant-table::-webkit-scrollbar-thumb {
+  /* 透明边框 + padding-box 裁剪，让滑块比轨道更细 */
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbe6f5, #cadcf0);
+  background-clip: padding-box;
+}
+
+.admin-table-panel .ant-table::-webkit-scrollbar-thumb:hover,
+.admin-table-panel .ant-table::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(135deg, #93c2fb, #6ba4ef);
+  background-clip: padding-box;
+}
+
+.admin-table-panel .ant-table::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .admin-table-panel .ant-table {
+    scrollbar-width: thin;
+    scrollbar-color: #cadcf0 transparent;
+  }
 }
 
 /* 创建时间：等宽数字，纵向对齐 */

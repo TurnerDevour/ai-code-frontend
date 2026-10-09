@@ -57,9 +57,7 @@ import type { MenuProps } from 'ant-design-vue'
 import {
   UserOutlined,
   HomeOutlined,
-  UserAddOutlined,
-  AppstoreOutlined,
-  CommentOutlined,
+  DashboardOutlined,
   LogoutOutlined,
 } from '@ant-design/icons-vue'
 import { ACCESS } from '@/constant/access.ts'
@@ -82,9 +80,7 @@ const handleMenuClick: MenuProps['onClick'] = (info) => {
 
 const iconMap = {
   HomeOutlined,
-  UserAddOutlined,
-  AppstoreOutlined,
-  CommentOutlined,
+  DashboardOutlined,
 } as const
 type IconName = keyof typeof iconMap
 const isIconName = (value: unknown): value is IconName => {

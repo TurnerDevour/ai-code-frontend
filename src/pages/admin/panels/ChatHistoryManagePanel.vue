@@ -1,12 +1,5 @@
 <template>
-  <div class="chat-manage-page">
-    <PageHeader
-      eyebrow="CHAT HISTORY MANAGEMENT"
-      title="对话管理"
-      description="查看平台中的所有对话消息，支持按消息内容、消息类型、应用与用户筛选。"
-      :icon="CommentOutlined"
-    />
-
+  <div class="chat-manage-panel">
     <AdminSearchPanel label="筛选对话">
       <a-form class="search-form" layout="inline" :model="searchParams" @finish="doSearch">
         <a-form-item label="消息内容">
@@ -107,10 +100,13 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 运营管理 - 对话历史管理页签的内容：筛选面板 + 全平台对话消息表格。
+ * 页头由 OperationManagePage 统一提供，这里只负责该页签的数据与交互。
+ */
 import { useRouter } from 'vue-router'
 import {
   AppstoreOutlined,
-  CommentOutlined,
   MessageOutlined,
   SearchOutlined,
   UserOutlined,
@@ -119,7 +115,6 @@ import { listAllChatHistoryByPageForAdmin } from '@/api/chatHistoryController'
 import AdminSearchPanel from '@/components/AdminSearchPanel.vue'
 import AdminTablePanel from '@/components/AdminTablePanel.vue'
 import ChatMessageTypeTag from '@/components/ChatMessageTypeTag.vue'
-import PageHeader from '@/components/PageHeader.vue'
 import { usePagedQuery } from '@/composables/usePagedQuery'
 import { MANAGE_PAGE_SIZE } from '@/constant/app'
 import { CHAT_MESSAGE_TYPE_OPTIONS } from '@/constant/chat'
@@ -206,16 +201,17 @@ const goToAppChat = (record: API.ChatHistory) => {
 </script>
 
 <style scoped>
-.chat-manage-page {
+.chat-manage-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  max-width: 1382px;
-  margin: 0 auto;
+
+  /* 高度由运营管理页逐层约束后透下来：高度占满标签页，剩余空间全部给列表区域 */
+  height: 100%;
+  min-height: 0;
 }
 
-.chat-manage-page :deep(.ant-table-tbody > tr > td:nth-child(2)) {
+.chat-manage-panel :deep(.ant-table-tbody > tr > td:nth-child(2)) {
   white-space: normal;
 }
 
@@ -253,8 +249,8 @@ const goToAppChat = (record: API.ChatHistory) => {
 }
 
 @media (max-width: 760px) {
-  .chat-manage-page {
-    min-height: auto;
+  .chat-manage-panel {
+    height: auto;
   }
 }
 </style>

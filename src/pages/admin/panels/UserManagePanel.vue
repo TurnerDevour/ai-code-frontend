@@ -1,12 +1,5 @@
 <template>
-  <div class="user-manage-page">
-    <PageHeader
-      eyebrow="USER MANAGEMENT"
-      title="用户管理"
-      description="查看并管理平台中的用户账号与权限。"
-      :icon="TeamOutlined"
-    />
-
+  <div class="user-manage-panel">
     <AdminSearchPanel label="筛选用户">
       <a-form class="search-form" layout="inline" :model="searchParams" @finish="doSearch">
         <a-form-item label="账号">
@@ -72,11 +65,14 @@
 </template>
 
 <script setup lang="ts">
-import { DeleteOutlined, SearchOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons-vue'
+/**
+ * 运营管理 - 用户管理页签的内容：筛选面板 + 用户列表表格。
+ * 页头由 OperationManagePage 统一提供，这里只负责该页签的数据与交互。
+ */
+import { DeleteOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { deleteUser, listUserVoByPage } from '@/api/userController.ts'
 import AdminSearchPanel from '@/components/AdminSearchPanel.vue'
 import AdminTablePanel from '@/components/AdminTablePanel.vue'
-import PageHeader from '@/components/PageHeader.vue'
 import { useMessage } from '@/composables/useMessage'
 import { usePagedQuery } from '@/composables/usePagedQuery'
 import { MANAGE_PAGE_SIZE } from '@/constant/app'
@@ -154,13 +150,14 @@ const doDelete = async (id: string) => {
 </script>
 
 <style scoped>
-.user-manage-page {
+.user-manage-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  max-width: 1382px;
-  margin: 0 auto;
+
+  /* 高度由运营管理页逐层约束后透下来：高度占满标签页，剩余空间全部给列表区域 */
+  height: 100%;
+  min-height: 0;
 }
 
 .role-tag {
@@ -202,8 +199,8 @@ const doDelete = async (id: string) => {
 }
 
 @media (max-width: 760px) {
-  .user-manage-page {
-    min-height: auto;
+  .user-manage-panel {
+    height: auto;
   }
 }
 </style>

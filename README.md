@@ -11,7 +11,7 @@
 | 首页     | 提示词创建应用（可选「代码模式」与「AI 模型」）、我的应用（搜索 / 分页 / 删除）、精选案例，卡片可直接进入对话页或打开部署站点                                                  |
 | 对话页   | 流式生成正文与**思考过程**、工具调用过程展示、历史消息向前翻页、可视化编辑（点选预览元素让 AI 改）、刷新预览、新窗口打开、下载源码 zip、异步部署与状态轮询、改名、应用详情弹窗 |
 | 应用编辑 | 本人可改名；管理员可改名称 / 封面 / 优先级                                                                                                                                     |
-| 后台管理 | 用户管理（分页 / 搜索 / 删除）、应用管理（分页 / 搜索 / 编辑 / 删除 / 设为精选）、对话管理（分页 / 多条件筛选 / 跳转对应应用）                                                 |
+| 运营管理 | 一个菜单（标签页切换三个模块）：用户管理（分页 / 搜索 / 删除）、应用管理（分页 / 搜索 / 编辑 / 删除 / 设为精选）、对话历史管理（分页 / 多条件筛选 / 跳转对应应用）                  |
 | 账号     | 登录、注册、个人中心（昵称 / 头像 / 简介），路由级与接口级双重权限校验                                                                                                         |
 
 ## 技术栈
@@ -67,9 +67,7 @@ npm run preview # 本地预览构建产物
 | 应用生成对话页           | `/app/chat/:id`                 | 登录用户           | 左侧对话区（思考过程 + Markdown 渲染 + 代码高亮）、右侧网页展示区，左:右 = 2:3；支持改名、可视化编辑、下载、部署 |
 | 应用信息修改页           | `/app/edit/:id`                 | 登录用户（仅本人） | 普通用户仅可改名                                                                                                 |
 | 应用信息修改页（管理员） | `/admin/appEdit/:id`            | 管理员             | 可改名称、封面、优先级（下拉选择）                                                                               |
-| 应用管理页               | `/admin/appManage`              | 管理员             | 应用列表分页 / 搜索，支持编辑、删除、设为精选 / 取消精选                                                         |
-| 用户管理页               | `/admin/userManage`             | 管理员             | 用户列表分页 / 搜索、删除                                                                                        |
-| 对话管理页               | `/admin/chatManage`             | 管理员             | 对话消息分页 / 按内容、类型、应用 id、用户 id 筛选，可跳转到消息所属应用的对话页                                 |
+| 运营管理（标签页）       | `/admin/operationManage`        | 管理员             | 一个菜单内用标签页切换三个模块：用户管理（分页 / 搜索 / 删除）、应用管理（分页 / 搜索 / 编辑 / 删除 / 设为精选）、对话历史管理（分页 / 多条件筛选 / 跳转对应应用）；当前标签记录在 `?tab=user / app / chatHistory`，旧地址 `/admin/userManage` 等重定向到对应标签 |
 | 登录 / 注册              | `/user/login`、`/user/register` | 公开               | 登录成功写入 Pinia 登录态                                                                                        |
 | 个人中心                 | `/user/profile`                 | 登录用户           | 修改昵称、头像、简介                                                                                             |
 
@@ -126,7 +124,7 @@ src/
 ├─ layouts/BasicLayout.vue  # 应用外壳：固定头尾 + 中间内容区滚动
 ├─ pages/
 │  ├─ HomePage.vue            主页
-│  ├─ admin/                  AppManagePage / ChatManagePage / UserManagePage
+│  ├─ admin/                  OperationManagePage（运营管理：标签页容器）+ panels/（用户 / 应用 / 对话历史三个面板）
 │  ├─ app/                    AppChatPage（对话与预览）/ AppEditPage（应用信息）
 │  └─ user/                   UserLoginPage / UserRegisterPage / UserProfilePage
 ├─ router/index.ts          # 路由表（含权限与导航元信息）
@@ -214,7 +212,9 @@ src/
 
 其中 `reloadAfterRemove(id)` 是「删完自动刷新」的统一实现：**先在本地把这条记录摘掉**（立即生效、不依赖后续请求，所以用户点完「确定」卡片就消失），**再重新拉一页校准** `total` 与空出来的位置；当前页被删空时自动回退一页。重新拉取失败时保留本地已摘除的列表并提示一次，不会把刚删掉的卡片又显示回来。
 
-主页两块列表、三个后台管理页都用它。分页大小集中在 [src/constant/app.ts](src/constant/app.ts)：主页 `HOME_PAGE_SIZE = 6`、管理页 `MANAGE_PAGE_SIZE = 10`。对话页的历史消息是**游标翻页**（按最旧一条的 `createTime` 向前取），因此不走这个 hook。
+主页两块列表、运营管理下的三个标签页都用它。分页大小集中在 [src/constant/app.ts](src/constant/app.ts)：主页 `HOME_PAGE_SIZE = 6`、管理页 `MANAGE_PAGE_SIZE = 10`。对话页的历史消息是**游标翻页**（按最旧一条的 `createTime` 向前取），因此不走这个 hook。
+
+> 标签页的懒挂载：`a-tab-pane` 只在首次激活时渲染内容，因此三个面板（各自在 `onMounted` 里发请求）会在切到对应标签时才请求一次，之后切换保留列表与查询条件。
 
 ### 7. 其它通用能力
 
@@ -317,6 +317,7 @@ requestLibPath: "import request from '@/utils/request'" // 生成的请求走统
 - 可复用 **UI** 抽到 `src/components/`，可复用 **逻辑** 抽到 `src/composables/`（对照上文的速查表），不要在页面里复制粘贴第二份。
 - 组件样式优先 `scoped`；**通过插槽传入的子内容**（表单、`a-table` 等）带的是父组件的 scopeId，父组件选不中它们，因此这类样式放在非 scoped 样式块里，并以组件根类名（`.admin-search-panel` / `.admin-table-panel` / `.auth-card` / `.form-panel` 等）收敛作用范围。弹窗内容会被 teleport 到 `body`，相关样式用 `:global()`（见 `AppModal.vue`、`AppDetailModal.vue`）。
 - 语义色沿用现有体系：主色渐变 `#1677ff → #5e63f2`，危险色 `#e85d75`，正文 `#3c5677` / 次要 `#8190a5`；胶囊类标签统一走 `PillTag` 的色板，不要各写一套。
+- 运营管理页（[OperationManagePage](src/pages/admin/OperationManagePage.vue)）的**高度是锁死的**（`height: 100%` 而非 `min-height`），配合 `a-tabs` 内部逐层 `flex` + `min-height: 0`，把内容区剩余高度全部让给列表区域；列表由 [AdminTablePanel](src/components/AdminTablePanel.vue) 的 `.ant-table` 自己滚动（`overflow: auto` + 表头 `position: sticky`），分页常驻卡片底部，因此**整页不出现滚动条**。改动这条链路上的任意一层（把 `height` 改回 `min-height`、加 `overflow: hidden` 等）都会让列表重新撑高整页。窄屏（`max-width: 760px`）与极矮视口（`max-height: 640px`）下会自动退回「整页滚动」，因为筛选表单此时会折行、固定高度会把列表压没。
 - 破坏性操作（删除等）一律二次确认，确认文案集中在 `DeleteAppButton`。
 - 提交前执行 `npm run type-check` 与 `npm run format`。
 

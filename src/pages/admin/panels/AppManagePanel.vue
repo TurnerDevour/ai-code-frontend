@@ -1,12 +1,5 @@
 <template>
-  <div class="app-manage-page">
-    <PageHeader
-      eyebrow="APPLICATION MANAGEMENT"
-      title="应用管理"
-      description="查看并管理平台中的所有应用，支持搜索、精选、优先级查看与删除。"
-      :icon="AppstoreOutlined"
-    />
-
+  <div class="app-manage-panel">
     <AdminSearchPanel label="筛选应用">
       <a-form class="search-form" layout="inline" :model="searchParams" @finish="doSearch">
         <a-form-item label="应用名称">
@@ -129,6 +122,10 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * 运营管理 - 应用管理页签的内容：筛选面板 + 应用列表表格（含编辑、精选、删除操作）。
+ * 页头由 OperationManagePage 统一提供，这里只负责该页签的数据与交互。
+ */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -146,7 +143,6 @@ import AdminSearchPanel from '@/components/AdminSearchPanel.vue'
 import AdminTablePanel from '@/components/AdminTablePanel.vue'
 import AppPriorityTag from '@/components/AppPriorityTag.vue'
 import CodeGenTypeTag from '@/components/CodeGenTypeTag.vue'
-import PageHeader from '@/components/PageHeader.vue'
 import { useMessage } from '@/composables/useMessage'
 import { usePagedQuery } from '@/composables/usePagedQuery'
 import { APP_PRIORITY_OPTIONS, GOOD_APP_PRIORITY, MANAGE_PAGE_SIZE } from '@/constant/app'
@@ -270,13 +266,14 @@ const goToAppDetail = (record: API.AppVO) => {
 </script>
 
 <style scoped>
-.app-manage-page {
+.app-manage-panel {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  max-width: 1382px;
-  margin: 0 auto;
+
+  /* 高度由运营管理页逐层约束后透下来：高度占满标签页，剩余空间全部给列表区域 */
+  height: 100%;
+  min-height: 0;
 }
 
 .priority-select {
@@ -287,13 +284,13 @@ const goToAppDetail = (record: API.AppVO) => {
   width: 200px;
 }
 
-.app-manage-page :deep(.ant-table-thead > tr > th:last-child),
-.app-manage-page :deep(.ant-table-tbody > tr > td:last-child) {
+.app-manage-panel :deep(.ant-table-thead > tr > th:last-child),
+.app-manage-panel :deep(.ant-table-tbody > tr > td:last-child) {
   padding-right: 20px;
   padding-left: 20px;
 }
 
-.app-manage-page :deep(.ant-image) {
+.app-manage-panel :deep(.ant-image) {
   overflow: hidden;
   border: 1px solid #eef3fa;
   border-radius: 8px;
@@ -303,12 +300,12 @@ const goToAppDetail = (record: API.AppVO) => {
     transform 0.25s ease;
 }
 
-.app-manage-page :deep(.ant-image:hover) {
+.app-manage-panel :deep(.ant-image:hover) {
   box-shadow: 0 8px 18px rgb(31 73 125 / 16%);
   transform: translateY(-2px);
 }
 
-.app-manage-page :deep(.ant-image img) {
+.app-manage-panel :deep(.ant-image img) {
   object-fit: cover;
   object-position: top center;
 }
@@ -383,8 +380,8 @@ const goToAppDetail = (record: API.AppVO) => {
 }
 
 @media (max-width: 760px) {
-  .app-manage-page {
-    min-height: auto;
+  .app-manage-panel {
+    height: auto;
   }
 }
 </style>
