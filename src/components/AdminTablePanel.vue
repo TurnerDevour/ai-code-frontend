@@ -78,15 +78,11 @@ const minWidthStyle = computed(() => {
 }
 </style>
 
-<!-- a-table 由页面通过插槽传入，面板的 scoped 样式命中不了它的内部节点，故表格本体、分页与
-     操作按钮组的样式放在非 scoped 块里，用 .admin-table-panel 收敛范围；最小宽度由 CSS 变量透下来。 -->
 <style>
 .admin-table-panel .ant-table-wrapper {
   display: flex;
   flex: 1;
   flex-direction: column;
-
-  /* min-height: 0：让表格区域能在卡片内被压缩，纵向滚动交给 .ant-table */
   min-height: 0;
   padding: 0 8px 8px;
 }
@@ -99,8 +95,6 @@ const minWidthStyle = computed(() => {
   min-height: 0;
 }
 
-/* 列表区域占满卡片剩余高度并在内部滚动（表头吸附、分页常驻卡片底部），
-   因此外层页面不再因为表格行数多而出现整页滚动条 */
 .admin-table-panel .ant-table {
   flex: 1;
   min-height: 0;
@@ -109,8 +103,6 @@ const minWidthStyle = computed(() => {
   font-size: 13px;
 }
 
-/* 列宽按定义精确分配（仅声明 minTableWidth 的页面），容器过窄时由 .ant-table-content 横向滚动；
-   未声明的保持浏览器自动布局，避免列宽被拉成均分 */
 .admin-table-panel table {
   width: 100%;
   min-width: var(--admin-table-min-width, 0);
