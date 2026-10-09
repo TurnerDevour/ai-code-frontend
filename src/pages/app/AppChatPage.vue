@@ -62,7 +62,7 @@
           class="deploy-button"
           :loading="deploying"
           :disabled="deployDisabled"
-          @click="handleDeploy"
+          @click="openDeployConfirm"
         >
           <template #icon>
             <CloudUploadOutlined />
@@ -300,6 +300,20 @@
       @delete="handleDetailDelete"
     />
 
+    <!-- 部署二次确认：与「应用详情 / 改名」共用 AppModal 外壳，保证弹窗视觉一致 -->
+    <AppModal
+      v-model:open="deployConfirmOpen"
+      title="确认部署该应用？"
+      subtitle="部署会执行依赖安装与打包"
+      :icon="CloudUploadOutlined"
+      :width="460"
+      :confirm-loading="deploySubmitting"
+      confirm-text="开始部署"
+      @confirm="handleDeployConfirm"
+    >
+      <p class="deploy-confirm-tip">预计需要几十秒。期间可以离开页面，稍后回来查看部署状态。</p>
+    </AppModal>
+
     <AppModal
       v-model:open="renameModalOpen"
       title="修改应用名称"
@@ -322,7 +336,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Modal } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
   BulbOutlined,
@@ -561,6 +574,8 @@ const renameModalOpen = ref(false)
 const renameValue = ref('')
 const renaming = ref(false)
 const detailModalOpen = ref(false)
+const deployConfirmOpen = ref(false)
+const deploySubmitting = ref(false)
 
 /** 与首页卡片共用 useDeleteApp：删完关闭详情弹窗并回首页 */
 const { deleting, deleteAppById } = useDeleteApp({
@@ -1138,25 +1153,26 @@ const openPreview = () => {
   }
 }
 
-/** 提交异步部署（毫秒级返回）后轮询到 ready / failed；部署会真的装依赖与打包，故点击前先二次确认 */
-const handleDeploy = async () => {
+/** 打开部署二次确认（部署会真的装依赖与打包，不能点一下就直接提交） */
+const openDeployConfirm = () => {
   if (!appId.value || deploying.value) {
     return
   }
-  Modal.confirm({
-    title: '确认部署该应用？',
-    content: '部署会执行依赖安装与打包，预计需要几十秒。期间可以离开页面，稍后回来查看部署状态。',
-    okText: '开始部署',
-    cancelText: '取消',
-    onOk: async () => {
-      try {
-        await startDeploy()
-      } catch (cause) {
-        // 队列已满（code=50000）等业务错误：优先展示后端下发的 message
-        showError(resolveDeployErrorMessage(cause))
-      }
-    },
-  })
+  deployConfirmOpen.value = true
+}
+
+/** 确认部署：提交异步部署（毫秒级返回），随后由 useAppDeploy 轮询到 ready / failed */
+const handleDeployConfirm = async () => {
+  deploySubmitting.value = true
+  try {
+    await startDeploy()
+    deployConfirmOpen.value = false
+  } catch (cause) {
+    // 队列已满（code=50000）等业务错误：优先展示后端下发的 message
+    showError(resolveDeployErrorMessage(cause))
+  } finally {
+    deploySubmitting.value = false
+  }
 }
 
 // 部署完成后刷新应用信息：deployKey / deployedTime 由后端在构建成功时写入
@@ -1508,6 +1524,11 @@ onBeforeUnmount(() => {
 .deploy-button:focus {
   color: #fff !important;
   background: linear-gradient(105deg, #3b8cff, #7175ff) !important;
+}
+
+/* 部署确认弹窗的正文：弹窗内容由本页渲染，因此走页面 scoped 样式 */
+.deploy-confirm-tip {
+  margin: 0;
 }
 
 .chat-body {

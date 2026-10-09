@@ -121,11 +121,11 @@ const CODE_GEN_TYPE_ICONS: Record<string, unknown> = {
   [CODE_GEN_TYPE.VUE_PROJECT]: LayoutOutlined,
 }
 const AI_MODEL_TYPE_ICONS: Record<string, unknown> = {
-  [AI_MODEL_TYPE.DEEPSEEK_FLASH]: ThunderboltOutlined,
+  [AI_MODEL_TYPE.DEEPSEEK_V4_1_FLASH]: ThunderboltOutlined,
   [AI_MODEL_TYPE.DEEPSEEK_V4_PRO]: RocketOutlined,
-  // 阿里云百炼：旗舰用皇冠、高性价比用云，与 DeepSeek 的闪电 / 火箭区分
+  // 都来自阿里云百炼，用图标区分两个系列：DeepSeek 闪电 / 火箭，Qwen 皇冠 / 云
   [AI_MODEL_TYPE.QWEN_3_8_MAX]: CrownOutlined,
-  [AI_MODEL_TYPE.QWEN_3_7_PLUS]: CloudOutlined,
+  [AI_MODEL_TYPE.QWEN_3_8_FLASH]: CloudOutlined,
 }
 
 const { warning } = useMessage()
@@ -148,7 +148,7 @@ const props = withDefaults(
     presets: () => [],
     maxlength: 2000,
     codeGenType: CODE_GEN_TYPE.MULTI_FILE,
-    aiModelType: AI_MODEL_TYPE.DEEPSEEK_FLASH,
+    aiModelType: AI_MODEL_TYPE.DEEPSEEK_V4_1_FLASH,
   },
 )
 

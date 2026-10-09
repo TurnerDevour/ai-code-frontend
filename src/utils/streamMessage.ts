@@ -1,5 +1,5 @@
 /**
- * Vue 工程模式（VUE_PROJECT）流式消息解析：后端 TokenStream 每个数据块是 JSON 字符串，
+ * 流式消息解析：后端每种生成模式（VUE_PROJECT / HTML / MULTI_FILE）的每个数据块都是 JSON 字符串，
  * 通过 SSE 的 data 字段下发，结构为 { type: 'ai_response' | 'ai_thinking' | 'tool_request'
  * | 'tool_executed' | 'error', ... }，与后端 StreamMessageTypeEnum 一致。
  * error 同样走 data: 帧（{"type":"error","data":"..."}），不用具名 event: error 帧，以免与 SSE 的错误/重连语义混淆。
@@ -43,7 +43,7 @@ const asString = (value: unknown): string => {
   return typeof value === 'string' ? value : ''
 }
 
-/** 是否为 VUE_PROJECT 的 JSON 消息（type 命中枚举） */
+/** 是否为后端的 JSON 消息（type 命中枚举） */
 export const isVueProjectStreamMessage = (payload: unknown): boolean => {
   if (!isRecord(payload)) {
     return false
@@ -51,7 +51,7 @@ export const isVueProjectStreamMessage = (payload: unknown): boolean => {
   return Object.values(STREAM_MESSAGE_TYPE).includes(payload.type as StreamMessageType)
 }
 
-/** 解析流式消息；非 VUE_PROJECT 消息（HTML / 多文件模式的纯文本）返回 null */
+/** 解析流式消息；不是 JSON 消息（旧版后端的纯文本增量）时返回 null */
 export const parseStreamMessage = (payload: unknown): ParsedStreamMessage | null => {
   const raw = typeof payload === 'string' ? tryParseJson(payload) : payload
   if (!isVueProjectStreamMessage(raw)) {

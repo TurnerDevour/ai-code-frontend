@@ -90,7 +90,7 @@ const { warning, fail } = useMessage()
 const initPrompt = ref('')
 // 新建应用时选择的类型（对应后端 AppAddRequest 字段）
 const newAppCodeGenType = ref<CodeGenType>(CODE_GEN_TYPE.MULTI_FILE)
-const newAppAiModelType = ref<AiModelType>(AI_MODEL_TYPE.DEEPSEEK_FLASH)
+const newAppAiModelType = ref<AiModelType>(AI_MODEL_TYPE.DEEPSEEK_V4_1_FLASH)
 const creating = ref(false)
 
 // ---- 我的应用 ----

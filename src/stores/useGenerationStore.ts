@@ -226,7 +226,7 @@ export const useGenerationStore = defineStore('generation', () => {
     }
   }
 
-  /** 处理一条 VUE_PROJECT 的 JSON 消息 */
+  /** 处理一条后端的 JSON 消息（正文 / 思考 / 工具 / 错误） */
   const applyStreamMessage = (session: GenerationSession, message: ParsedStreamMessage) => {
     if (message.type === STREAM_MESSAGE_TYPE.AI_RESPONSE) {
       if (message.data) {
@@ -307,7 +307,7 @@ export const useGenerationStore = defineStore('generation', () => {
     if (message) {
       applyStreamMessage(session, message)
     } else {
-      // HTML / 多文件模式是纯文本增量（兼容 {d: '...'} 包装）
+      // 兼容旧版后端的纯文本增量（当前后端各模式都下发 JSON 消息，这里只是兜底）
       const payload = frame.data as unknown
       const chunk =
         typeof payload === 'string'
